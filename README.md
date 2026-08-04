@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Plain Thread
 
-## Getting Started
+SEO-first micro brand website for premium oversized essentials. Sends shoppers to Amazon and Flipkart with a psychology-led journey: Attention → Trust → Desire → Choice → Action.
 
-First, run the development server:
+## Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Next.js App Router
+- Tailwind CSS
+- Framer Motion
+- Lucide React
+- MDX blog content
+- JSON-LD structured data
+
+## Architecture
+
+```
+/
+/shop
+/products
+/products/black-oversized-tshirt
+/products/white-oversized-tshirt
+/products/pink-oversized-tshirt
+/collections/oversized-tshirts
+/why-plain-thread
+/fabric
+/size-guide
+/care-guide
+/about
+/faq
+/contact
+/blog/*
+/privacy
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Develop
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open [http://localhost:3000](http://localhost:3000).
 
-## Learn More
+## SEO included
 
-To learn more about Next.js, take a look at the following resources:
+- `generateMetadata` + canonical URLs
+- `sitemap.xml` + `robots.txt`
+- Product, FAQ, Organization, Website, Breadcrumb, Article schema
+- Keyword-rich product and blog URLs
+- Internal linking across products, guides, and articles
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Customize marketplace links
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Update marketplace URLs in `src/data/products.ts` with your official Amazon and Flipkart listing links.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Brand content referenced from [asv02/Plain-Theory](https://github.com/asv02/Plain-Theory).
