@@ -24,9 +24,10 @@ export default function PrivacyPage() {
         </p>
         <h2>Information we may collect</h2>
         <p>
-          If you email us or interact with analytics tools (such as Google Analytics or
-          Microsoft Clarity when configured), basic usage and contact information may be
-          processed to improve the site and respond to enquiries.
+          If you email us or interact with analytics tools (such as Meta Pixel, Google
+          Analytics, or Microsoft Clarity when configured), basic usage and device
+          information may be processed to measure traffic, ad performance, and respond to
+          enquiries.
         </p>
         <h2>Third-party marketplaces</h2>
         <p>

@@ -11,6 +11,13 @@ export function Header() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [menuPathname, setMenuPathname] = useState(pathname);
+
+  // Close mobile menu when the route changes (adjust state during render).
+  if (menuPathname !== pathname) {
+    setMenuPathname(pathname);
+    if (open) setOpen(false);
+  }
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -18,11 +25,6 @@ export function Header() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
-  // Close menu on route change
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
 
   useEffect(() => {
     if (!open) return;

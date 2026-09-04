@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 export function FadeIn({
   children,
@@ -12,17 +12,6 @@ export function FadeIn({
   className?: string;
   delay?: number;
 }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Render identical markup on server + first client paint to avoid hydration mismatch
-  if (!mounted) {
-    return <div className={className}>{children}</div>;
-  }
-
   return (
     <motion.div
       className={className}
