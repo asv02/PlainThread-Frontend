@@ -33,6 +33,7 @@ export const footerLinks = {
     { href: "/fabric", label: "Fabric" },
     { href: "/size-guide", label: "Size Guide" },
     { href: "/care-guide", label: "Care Guide" },
+    { href: "/shipping-returns", label: "Shipping & Returns" },
   ],
   company: [
     { href: "/about", label: "About" },

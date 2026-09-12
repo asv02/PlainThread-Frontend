@@ -19,7 +19,7 @@ export default function ShopPage() {
       <FadeIn>
         <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl">Shop</h1>
         <p className="mt-4 max-w-2xl text-base text-secondary sm:text-lg">
-          Premium oversized essentials. Pick a colour, then choose your marketplace.
+          Premium oversized essentials. Pick a colour and size, then checkout here or on Amazon / Flipkart.
         </p>
       </FadeIn>
 

@@ -13,6 +13,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/fabric",
     "/size-guide",
     "/care-guide",
+    "/shipping-returns",
     "/about",
     "/faq",
     "/contact",

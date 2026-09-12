@@ -18,9 +18,10 @@ export default function PrivacyPage() {
       </FadeIn>
       <div className="prose-pt mt-10 max-w-3xl">
         <p>
-          {siteConfig.name} operates a brand website that helps you discover products and
-          continue to Amazon or Flipkart for purchase. We do not process payments on this
-          site.
+          {siteConfig.name} sells oversized essentials on this website. When you check out
+          here we collect your name, email, phone, and delivery address to fulfil the order.
+          Payments are processed by Razorpay. We also still link to Amazon and Flipkart;
+          those checkouts are governed by their policies.
         </p>
         <h2>Information we may collect</h2>
         <p>

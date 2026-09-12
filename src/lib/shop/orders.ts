@@ -1,0 +1,204 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { OrderPayload } from "@/lib/shop/types";
+
+function asPayload(data: unknown): OrderPayload {
+  const value = data as OrderPayload;
+  if (!value?.order?.id) throw new Error("Unexpected order response");
+  return value;
+}
+
+export async function expireStaleOrders(excludeOrderId?: string) {
+  const db = supabaseAdmin();
+  const withArg = await db.rpc("expire_stale_orders", {
+    p_exclude_id: excludeOrderId ?? null,
+  });
+  if (!withArg.error) {
+    return typeof withArg.data === "number" ? withArg.data : 0;
+  }
+  const unknownArg =
+    withArg.error.code === "PGRST202" ||
+    /expire_stale_orders\(p_exclude_id\)/i.test(withArg.error.message);
+  if (!unknownArg) throw new Error(withArg.error.message);
+
+  const noArg = await db.rpc("expire_stale_orders");
+  if (noArg.error) throw new Error(noArg.error.message);
+  return typeof noArg.data === "number" ? noArg.data : 0;
+}
+
+export async function checkoutCreate(input: {
+  idempotencyKey: string;
+  customer: Record<string, string>;
+  items: unknown;
+  subtotalPaise: number;
+  taxPaise: number;
+  shippingPaise: number;
+  totalPaise: number;
+  holdMinutes: number;
+  taxRateBps: number;
+  taxKind: string;
+  cgstPaise: number;
+  sgstPaise: number;
+  igstPaise: number;
+}) {
+  const { data, error } = await supabaseAdmin().rpc("checkout_create", {
+    p_idempotency_key: input.idempotencyKey,
+    p_customer: input.customer,
+    p_items: input.items,
+    p_subtotal_paise: input.subtotalPaise,
+    p_tax_paise: input.taxPaise,
+    p_shipping_paise: input.shippingPaise,
+    p_total_paise: input.totalPaise,
+    p_hold_minutes: input.holdMinutes,
+    p_tax_rate_bps: input.taxRateBps,
+    p_tax_kind: input.taxKind,
+    p_cgst_paise: input.cgstPaise,
+    p_sgst_paise: input.sgstPaise,
+    p_igst_paise: input.igstPaise,
+  });
+  if (error) {
+    const message = error.message || "Checkout failed";
+    if (message.includes("OUT_OF_STOCK")) {
+      const err = new Error("That size just sold out. Remove it or pick another size.");
+      (err as Error & { code?: string }).code = "OUT_OF_STOCK";
+      throw err;
+    }
+    throw new Error(message.replace(/^.*exception: /i, ""));
+  }
+  return asPayload(data);
+}
+
+export async function attachRazorpayOrder(orderId: string, razorpayOrderId: string) {
+  const { error } = await supabaseAdmin().rpc("attach_razorpay_order", {
+    p_order_id: orderId,
+    p_razorpay_order_id: razorpayOrderId,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function markPaymentFailed(orderId: string, reason: string) {
+  await supabaseAdmin().rpc("mark_payment_failed", {
+    p_order_id: orderId,
+    p_reason: reason.slice(0, 300),
+  });
+}
+
+export async function markOrderPaid(orderId: string, paymentId: string | null) {
+  const { data, error } = await supabaseAdmin().rpc("mark_order_paid", {
+    p_order_id: orderId,
+    p_payment_id: paymentId,
+  });
+  if (error) throw new Error(error.message);
+  return data as {
+    result: string;
+    razorpay_payment_id?: string | null;
+    payload?: OrderPayload;
+  };
+}
+
+export async function cancelCustomerOrder(orderId: string, reason: string) {
+  const { data, error } = await supabaseAdmin().rpc("cancel_customer_order", {
+    p_order_id: orderId,
+    p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+  return data as {
+    result: string;
+    razorpay_payment_id?: string | null;
+    payload?: OrderPayload;
+    status?: string;
+  };
+}
+
+export async function finalizeRefundCancel(orderId: string) {
+  const { data, error } = await supabaseAdmin().rpc("finalize_refund_cancel", {
+    p_order_id: orderId,
+  });
+  if (error) throw new Error(error.message);
+  return data as { result: string; payload?: OrderPayload };
+}
+
+export async function getOrderByPublicId(publicId: string) {
+  const db = supabaseAdmin();
+  const { data: order, error } = await db
+    .from("orders")
+    .select("*")
+    .eq("public_id", publicId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!order) return null;
+  await expireStaleOrders(order.id);
+  const { data: items, error: itemsError } = await db
+    .from("order_items")
+    .select("*")
+    .eq("order_id", order.id);
+  if (itemsError) throw new Error(itemsError.message);
+  const { data: fresh } = await db.from("orders").select("*").eq("id", order.id).maybeSingle();
+  return { order: (fresh ?? order) as OrderPayload["order"], items: items ?? [] } as OrderPayload;
+}
+
+export async function getOrderPayloadById(orderId: string) {
+  const db = supabaseAdmin();
+  const { data: order, error } = await db.from("orders").select("*").eq("id", orderId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!order) return null;
+  const { data: items, error: itemsError } = await db
+    .from("order_items")
+    .select("*")
+    .eq("order_id", order.id);
+  if (itemsError) throw new Error(itemsError.message);
+  return { order, items: items ?? [] } as OrderPayload;
+}
+
+export async function listOrdersNeedingPaidEmail(limit = 20) {
+  const db = supabaseAdmin();
+  const { data: orders, error } = await db
+    .from("orders")
+    .select("*")
+    .in("status", ["paid", "packed", "shipped", "delivered"])
+    .or("customer_email_sent_at.is.null,ops_email_sent_at.is.null")
+    .order("paid_at", { ascending: true })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return (orders ?? []) as OrderPayload["order"][];
+}
+
+export async function markOrderEmailSent(orderId: string, kind: "customer" | "ops") {
+  const column = kind === "customer" ? "customer_email_sent_at" : "ops_email_sent_at";
+  const { error } = await supabaseAdmin()
+    .from("orders")
+    .update({ [column]: new Date().toISOString() })
+    .eq("id", orderId)
+    .is(column, null);
+  if (error) throw new Error(error.message);
+}
+
+export async function getOrderByRazorpayOrderId(razorpayOrderId: string) {
+  const db = supabaseAdmin();
+  const { data: order, error } = await db
+    .from("orders")
+    .select("*")
+    .eq("razorpay_order_id", razorpayOrderId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!order) return null;
+  const { data: items } = await db.from("order_items").select("*").eq("order_id", order.id);
+  return { order, items: items ?? [] } as OrderPayload;
+}
+
+export async function recordPaymentEvent(input: {
+  orderId?: string | null;
+  eventType: string;
+  providerEventId?: string | null;
+  payload: unknown;
+}) {
+  if (!input.providerEventId) return { duplicate: false };
+  const { error } = await supabaseAdmin().from("payment_events").insert({
+    order_id: input.orderId ?? null,
+    event_type: input.eventType,
+    provider_event_id: input.providerEventId,
+    payload: input.payload,
+  });
+  if (error?.code === "23505") return { duplicate: true };
+  if (error) throw new Error(error.message);
+  return { duplicate: false };
+}

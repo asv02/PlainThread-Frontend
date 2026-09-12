@@ -1,0 +1,187 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { AdminOrder } from "@/lib/shop/types";
+import { formatPrice } from "@/lib/utils";
+
+type Variant = { sku: string; product_slug: string; size: string; stock: number };
+
+export function AdminClient() {
+  const [password, setPassword] = useState("");
+  const [authed, setAuthed] = useState(false);
+  const [error, setError] = useState("");
+  const [variants, setVariants] = useState<Variant[]>([]);
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
+
+  async function load() {
+    const res = await fetch("/api/admin", { cache: "no-store" });
+    if (res.status === 401) {
+      setAuthed(false);
+      return;
+    }
+    const data = (await res.json()) as { variants?: Variant[]; orders?: AdminOrder[] };
+    setVariants(data.variants ?? []);
+    setOrders(data.orders ?? []);
+    setAuthed(true);
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function login(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    const res = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    if (!res.ok) {
+      setError("Invalid password");
+      return;
+    }
+    await load();
+  }
+
+  async function saveStock(sku: string, stock: number) {
+    await fetch("/api/admin", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "stock", sku, stock }),
+    });
+    await load();
+  }
+
+  async function setStatus(orderId: string, status: string) {
+    await fetch("/api/admin", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "status", orderId, status }),
+    });
+    await load();
+  }
+
+  if (!authed) {
+    return (
+      <form onSubmit={(event) => void login(event)} className="max-w-sm space-y-4">
+        <label className="block text-sm">
+          Admin password
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="mt-1 w-full border border-border px-3 py-2.5"
+          />
+        </label>
+        {error && <p className="text-sm text-red-700">{error}</p>}
+        <button type="submit" className="bg-button px-5 py-3 text-sm text-white">
+          Enter
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <div className="space-y-12">
+      <section>
+        <h2 className="font-serif text-2xl">Inventory</h2>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[520px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="py-2">SKU</th>
+                <th>Product</th>
+                <th>Size</th>
+                <th>Stock</th>
+              </tr>
+            </thead>
+            <tbody>
+              {variants.map((variant) => (
+                <tr key={variant.sku} className="border-b border-border">
+                  <td className="py-2">{variant.sku}</td>
+                  <td>{variant.product_slug}</td>
+                  <td>{variant.size}</td>
+                  <td>
+                    <input
+                      type="number"
+                      min={0}
+                      defaultValue={variant.stock}
+                      className="w-20 border border-border px-2 py-1"
+                      onBlur={(event) =>
+                        void saveStock(variant.sku, Number(event.target.value))
+                      }
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="font-serif text-2xl">Orders</h2>
+        <ul className="mt-4 space-y-3">
+          {orders.map((order) => (
+            <li key={order.id} className="border border-border p-4 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="font-medium">
+                  {order.public_id} · {order.status} · {formatPrice(order.total_paise / 100)}
+                </p>
+                {order.status === "paid" && (
+                  <button
+                    type="button"
+                    className="underline underline-offset-4"
+                    onClick={() => void setStatus(order.id, "packed")}
+                  >
+                    Mark packed
+                  </button>
+                )}
+                {order.status === "packed" && (
+                  <button
+                    type="button"
+                    className="underline underline-offset-4"
+                    onClick={() => void setStatus(order.id, "shipped")}
+                  >
+                    Mark shipped
+                  </button>
+                )}
+                {order.status === "shipped" && (
+                  <button
+                    type="button"
+                    className="underline underline-offset-4"
+                    onClick={() => void setStatus(order.id, "delivered")}
+                  >
+                    Mark delivered
+                  </button>
+                )}
+              </div>
+              <p className="mt-2">
+                {order.customer_name} · {order.email} · {order.phone}
+              </p>
+              <p className="mt-1 text-secondary">
+                {order.address_line1}
+                {order.address_line2 ? `, ${order.address_line2}` : ""}
+                <br />
+                {order.city}, {order.state} {order.pincode}
+              </p>
+              <ul className="mt-2 text-secondary">
+                {order.items.map((item) => (
+                  <li key={item.id}>
+                    {item.name} · {item.size} × {item.qty} · {item.sku}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-secondary">
+                Mail: customer {order.customer_email_sent_at ? "sent" : "pending"} · ops{" "}
+                {order.ops_email_sent_at ? "sent" : "pending"}
+                {order.razorpay_payment_id ? ` · ${order.razorpay_payment_id}` : ""}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}

@@ -9,7 +9,7 @@ import { buildMetadata } from "@/lib/seo";
 export const metadata = buildMetadata({
   title: "FAQ | Plain Thread Oversized T-Shirts",
   description:
-    "Answers about 220 GSM, oversized unisex fit, shrinkage, combed cotton, summer wear, and where to buy Plain Thread on Amazon or Flipkart.",
+    "Answers about 220 GSM, oversized unisex fit, shrinkage, 7-day returns after delivery, and where to buy Plain Thread.",
   path: "/faq",
 });
 
@@ -22,7 +22,8 @@ export default function FaqPage() {
         <FadeIn>
           <h1 className="font-serif text-4xl md:text-5xl">Frequently Asked Questions</h1>
           <p className="mt-4 max-w-2xl text-secondary">
-            Clear answers before you choose your marketplace.
+            Fit, fabric, delivery, and returns — including the 7-day window after
+            Delhivery marks an order delivered.
           </p>
         </FadeIn>
         <div className="mt-10 max-w-3xl">

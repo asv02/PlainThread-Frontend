@@ -17,7 +17,8 @@ export default function ContactPage() {
       <FadeIn>
         <h1 className="font-serif text-4xl md:text-5xl">Contact</h1>
         <p className="mt-4 max-w-xl text-secondary">
-          Questions about fit, fabric, or marketplace listings? We are here.
+          Questions about fit, fabric, marketplace listings, or a return within 7
+          days of delivery? We are here.
         </p>
       </FadeIn>
 

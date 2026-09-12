@@ -37,7 +37,17 @@ export const siteFaqs: FaqItem[] = [
   {
     question: "Where can I buy Plain Thread?",
     answer:
-      "You can choose your preferred marketplace — Amazon or Flipkart — from any product page. Secure checkout happens on the marketplace you trust.",
+      "Shop on this website, or choose Amazon or Flipkart from any product page. Website checkout is on Razorpay; marketplace checkout follows that marketplace.",
+  },
+  {
+    question: "Can I return an order after it is delivered?",
+    answer:
+      "Yes. Website orders can be returned within 7 days of the delivered date, including after Delhivery has completed delivery. Email hello@plainthread.in with your order ID. Reverse pickup is arranged through iThink Logistics. Amazon and Flipkart orders follow those marketplace return policies.",
+  },
+  {
+    question: "How do I cancel before the parcel ships?",
+    answer:
+      "Use the cancel button on your order link while the order is still unpaid or paid and not yet packed. After it is packed or handed to Delhivery, wait for delivery and request a return within 7 days of the delivered date.",
   },
   {
     question: "Are the dyes skin friendly?",

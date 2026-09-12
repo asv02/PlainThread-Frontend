@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Playfair_Display } from "next/font/google";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
+import { ShopProvider } from "@/components/shop/ShopProvider";
 import { MetaPixel } from "@/components/analytics/MetaPixel";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { organizationSchema, websiteSchema } from "@/lib/schema";
@@ -61,9 +62,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col font-sans antialiased">
         <MetaPixel />
         <JsonLd data={[organizationSchema(), websiteSchema()]} />
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
+        <ShopProvider>
+          <Header />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </ShopProvider>
       </body>
     </html>
   );

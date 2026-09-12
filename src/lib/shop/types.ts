@@ -1,0 +1,115 @@
+export type OrderStatus =
+  | "pending_payment"
+  | "paid"
+  | "packed"
+  | "shipped"
+  | "delivered"
+  | "cancelled";
+
+export type PaymentStatus =
+  | "created"
+  | "failed"
+  | "paid"
+  | "refund_pending"
+  | "refunded";
+
+export type DbOrder = {
+  id: string;
+  public_id: string;
+  access_token: string;
+  idempotency_key: string;
+  status: OrderStatus;
+  customer_name: string;
+  email: string;
+  phone: string;
+  address_line1: string;
+  address_line2: string | null;
+  city: string;
+  state: string;
+  pincode: string;
+  subtotal_paise: number;
+  tax_paise: number;
+  tax_rate_bps: number;
+  tax_kind: "igst" | "cgst_sgst";
+  cgst_paise: number;
+  sgst_paise: number;
+  igst_paise: number;
+  shipping_paise: number;
+  total_paise: number;
+  currency: string;
+  razorpay_order_id: string | null;
+  razorpay_payment_id: string | null;
+  payment_status: PaymentStatus;
+  failure_reason: string | null;
+  hold_expires_at: string;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  paid_at: string | null;
+  customer_email_sent_at: string | null;
+  ops_email_sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DbOrderItem = {
+  id: string;
+  order_id: string;
+  variant_id: string;
+  product_slug: string;
+  size: string;
+  sku: string;
+  name: string;
+  qty: number;
+  unit_price_paise: number;
+  stock_held: boolean;
+};
+
+export type OrderPayload = {
+  order: DbOrder;
+  items: DbOrderItem[];
+};
+
+export type CartLine = {
+  productSlug: string;
+  size: string;
+  qty: number;
+};
+
+export type AdminOrder = Omit<DbOrder, "access_token" | "idempotency_key"> & {
+  items: DbOrderItem[];
+};
+
+export type PublicOrder = {
+  publicId: string;
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
+  customerName: string;
+  email: string;
+  phone: string;
+  addressLine1: string;
+  addressLine2: string | null;
+  city: string;
+  state: string;
+  pincode: string;
+  subtotalPaise: number;
+  taxPaise: number;
+  taxRateBps: number;
+  taxKind: "igst" | "cgst_sgst";
+  cgstPaise: number;
+  sgstPaise: number;
+  igstPaise: number;
+  shippingPaise: number;
+  totalPaise: number;
+  currency: string;
+  holdExpiresAt: string | null;
+  failureReason: string | null;
+  items: Array<{
+    name: string;
+    productSlug: string;
+    size: string;
+    sku: string;
+    qty: number;
+    unitPricePaise: number;
+  }>;
+  canCancel: boolean;
+};

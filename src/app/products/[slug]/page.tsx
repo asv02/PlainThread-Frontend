@@ -1,4 +1,5 @@
 import { MarketplaceCards } from "@/components/product/MarketplaceCards";
+import { AddToCart } from "@/components/shop/AddToCart";
 import { ProductCard } from "@/components/product/ProductCard";
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
@@ -110,6 +111,10 @@ export default async function ProductPage({ params }: Props) {
                 </li>
               ))}
             </ul>
+
+            <div className="mt-10">
+              <AddToCart productSlug={product.slug} productName={product.name} />
+            </div>
 
             <div className="mt-10">
               <MarketplaceCards marketplaces={product.marketplaces} />

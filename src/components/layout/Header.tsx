@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { navLinks, siteConfig } from "@/data/site";
+import { CartNav } from "@/components/shop/CartNav";
 import { cn } from "@/lib/utils";
 
 export function Header() {
@@ -91,6 +92,8 @@ export function Header() {
             ))}
           </nav>
 
+          <div className="flex items-center gap-1">
+            <CartNav />
           <button
             type="button"
             className="relative z-50 inline-flex h-11 w-11 items-center justify-center md:hidden"
@@ -101,6 +104,7 @@ export function Header() {
           >
             {open ? <X size={22} /> : <Menu size={22} />}
           </button>
+          </div>
         </div>
       </header>
 
@@ -129,6 +133,13 @@ export function Header() {
                   {link.label}
                 </Link>
               ))}
+
+              <Link
+                href="/cart"
+                className="border-b border-border py-4 text-lg text-foreground"
+              >
+                Cart
+              </Link>
 
               <div className="mt-8 flex flex-col gap-3 pb-8">
                 <Link
