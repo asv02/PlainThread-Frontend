@@ -3,6 +3,7 @@ import { sendPaidOrderEmails } from "@/lib/email/send";
 import { getOrderPayloadById, listOrdersNeedingPaidEmail, markOrderPaid } from "@/lib/shop/orders";
 import { razorpayConfigured } from "@/lib/shop/config";
 import type { OrderPayload } from "@/lib/shop/types";
+import { errMessage, log } from "@/lib/log";
 
 function storedPaymentId(result: {
   razorpay_payment_id?: string | null;
@@ -31,30 +32,39 @@ export async function retryUnsentPaidEmails() {
   try {
     orders = await listOrdersNeedingPaidEmail(20);
   } catch (error) {
-    console.error("paid email retry skipped", error);
+    log.error("complete-payment", "paid email retry skipped", { error: errMessage(error) });
     return 0;
   }
   for (const order of orders) {
     try {
       await deliverPaidOrderEmails(order.id);
     } catch (error) {
-      console.error("paid email retry failed", order.public_id, error);
+      log.error("complete-payment", "paid email retry failed", {
+        publicId: order.public_id,
+        error: errMessage(error),
+      });
     }
   }
   return orders.length;
 }
 
 export async function completeCapturedPayment(orderId: string, paymentId: string) {
+  log.debug("complete-payment", "start", { orderId, paymentId });
   const result = await markOrderPaid(orderId, paymentId);
   const payload = result.payload;
   const amountPaise = payload?.order.total_paise;
   const existingPaymentId = storedPaymentId(result);
+  log.info("complete-payment", "mark result", {
+    orderId,
+    result: result.result,
+    publicId: payload?.order.public_id,
+  });
 
   if (result.result === "paid" || result.result === "already_paid") {
     try {
       await deliverPaidOrderEmails(orderId);
     } catch (error) {
-      console.error("payment emails failed", error);
+      log.error("complete-payment", "payment emails failed", { error: errMessage(error), orderId });
     }
   }
 
@@ -67,7 +77,10 @@ export async function completeCapturedPayment(orderId: string, paymentId: string
     try {
       await refundCapturedPayment(paymentId, amountPaise);
     } catch (error) {
-      console.error("duplicate capture refund failed", error);
+      log.error("complete-payment", "duplicate capture refund failed", {
+        error: errMessage(error),
+        paymentId,
+      });
     }
   }
 
@@ -75,7 +88,10 @@ export async function completeCapturedPayment(orderId: string, paymentId: string
     try {
       await refundCapturedPayment(paymentId, amountPaise);
     } catch (error) {
-      console.error("late payment refund failed", error);
+      log.error("complete-payment", "late payment refund failed", {
+        error: errMessage(error),
+        paymentId,
+      });
     }
   }
 

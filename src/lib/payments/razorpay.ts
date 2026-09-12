@@ -1,5 +1,6 @@
 import Razorpay from "razorpay";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { log } from "@/lib/log";
 
 export class RazorpayRequestError extends Error {
   status: number;
@@ -53,6 +54,7 @@ export async function createRazorpayOrder(input: {
       notes: input.notes,
     });
     if (!order.id) throw new RazorpayRequestError("Razorpay did not return an order id", 500);
+    log.debug("razorpay", "order created", { orderId: order.id, receipt: input.receipt });
     return {
       order_id: order.id,
       amount: Number(order.amount),
@@ -75,6 +77,7 @@ export async function refundRazorpayPayment(paymentId: string, amountPaise: numb
       speed: "optimum",
     });
     if (!refund.id) throw new RazorpayRequestError("Refund failed", 500);
+    log.info("razorpay", "refund created", { paymentId, refundId: refund.id, amountPaise });
     return refund.id;
   } catch (error) {
     if (error instanceof RazorpayRequestError) throw error;

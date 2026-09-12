@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { OrderPayload } from "@/lib/shop/types";
+import { log } from "@/lib/log";
 
 function asPayload(data: unknown): OrderPayload {
   const value = data as OrderPayload;
@@ -13,6 +14,9 @@ export async function expireStaleOrders(excludeOrderId?: string) {
     p_exclude_id: excludeOrderId ?? null,
   });
   if (!withArg.error) {
+    if (typeof withArg.data === "number" && withArg.data > 0) {
+      log.info("orders", "expired stale holds", { count: withArg.data });
+    }
     return typeof withArg.data === "number" ? withArg.data : 0;
   }
   const unknownArg =
@@ -20,6 +24,7 @@ export async function expireStaleOrders(excludeOrderId?: string) {
     /expire_stale_orders\(p_exclude_id\)/i.test(withArg.error.message);
   if (!unknownArg) throw new Error(withArg.error.message);
 
+  log.debug("orders", "expire_stale_orders fallback to no-arg rpc");
   const noArg = await db.rpc("expire_stale_orders");
   if (noArg.error) throw new Error(noArg.error.message);
   return typeof noArg.data === "number" ? noArg.data : 0;
@@ -64,7 +69,12 @@ export async function checkoutCreate(input: {
     }
     throw new Error(message.replace(/^.*exception: /i, ""));
   }
-  return asPayload(data);
+  const payload = asPayload(data);
+  log.debug("orders", "checkout_create", {
+    publicId: payload.order.public_id,
+    status: payload.order.status,
+  });
+  return payload;
 }
 
 export async function attachRazorpayOrder(orderId: string, razorpayOrderId: string) {
@@ -88,11 +98,13 @@ export async function markOrderPaid(orderId: string, paymentId: string | null) {
     p_payment_id: paymentId,
   });
   if (error) throw new Error(error.message);
-  return data as {
+  const paid = data as {
     result: string;
     razorpay_payment_id?: string | null;
     payload?: OrderPayload;
   };
+  log.info("orders", "mark_order_paid", { orderId, result: paid.result });
+  return paid;
 }
 
 export async function cancelCustomerOrder(orderId: string, reason: string) {

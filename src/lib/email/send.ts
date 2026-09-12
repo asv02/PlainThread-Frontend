@@ -3,6 +3,7 @@ import { siteConfig } from "@/data/site";
 import { siteUrl } from "@/lib/shop/config";
 import { markOrderEmailSent } from "@/lib/shop/orders";
 import { toPublicOrder } from "@/lib/shop/serialize";
+import { errMessage, log } from "@/lib/log";
 import { taxLinesFromStored } from "@/lib/shop/tax";
 import type { OrderPayload } from "@/lib/shop/types";
 import { formatPrice } from "@/lib/utils";
@@ -111,7 +112,7 @@ function opsInbox() {
 export async function sendPaidOrderEmails(payload: OrderPayload) {
   const resend = resendClient();
   if (!resend) {
-    console.warn("RESEND_API_KEY is not set; skipped payment emails");
+    log.info("email", "RESEND_API_KEY missing; skipped", { publicId: payload.order.public_id });
     return { customer: false, ops: false };
   }
 
@@ -134,7 +135,7 @@ export async function sendPaidOrderEmails(payload: OrderPayload) {
         })
         .then((result) => ({ kind: "customer" as const, ok: !result.error }))
         .catch((error) => {
-          console.error("payment email failed", error);
+          log.error("email", "customer send failed", { error: errMessage(error) });
           return { kind: "customer" as const, ok: false };
         }),
     );
@@ -150,7 +151,7 @@ export async function sendPaidOrderEmails(payload: OrderPayload) {
         })
         .then((result) => ({ kind: "ops" as const, ok: !result.error }))
         .catch((error) => {
-          console.error("payment email failed", error);
+          log.error("email", "ops send failed", { error: errMessage(error) });
           return { kind: "ops" as const, ok: false };
         }),
     );
@@ -159,13 +160,17 @@ export async function sendPaidOrderEmails(payload: OrderPayload) {
   const results = await Promise.all(jobs);
   for (const result of results) {
     if (!result.ok) {
-      console.error("payment email failed", result.kind, payload.order.public_id);
+      log.error("email", "send failed", {
+        kind: result.kind,
+        publicId: payload.order.public_id,
+      });
       continue;
     }
     try {
       await markOrderEmailSent(payload.order.id, result.kind);
+      log.info("email", "sent", { kind: result.kind, publicId: payload.order.public_id });
     } catch (error) {
-      console.error("payment email flag failed", error);
+      log.error("email", "flag update failed", { error: errMessage(error) });
     }
   }
 

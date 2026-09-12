@@ -3,6 +3,7 @@ import { isAdmin } from "@/lib/shop/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { expireStaleOrders } from "@/lib/shop/orders";
 import type { AdminOrder, DbOrder, DbOrderItem } from "@/lib/shop/types";
+import { log } from "@/lib/log";
 
 function toAdminOrder(order: DbOrder, items: DbOrderItem[]): AdminOrder {
   return {
@@ -45,6 +46,7 @@ function toAdminOrder(order: DbOrder, items: DbOrderItem[]): AdminOrder {
 
 export async function GET() {
   if (!(await isAdmin())) {
+    log.info("admin", "get unauthorized");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   await expireStaleOrders();
@@ -67,6 +69,10 @@ export async function GET() {
     list.push(item);
     itemsByOrder.set(item.order_id, list);
   }
+  log.debug("admin", "loaded", {
+    variants: (variants ?? []).length,
+    orders: orderRows.length,
+  });
   return NextResponse.json({
     variants: variants ?? [],
     orders: orderRows.map((order) => toAdminOrder(order, itemsByOrder.get(order.id) ?? [])),
@@ -75,6 +81,7 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   if (!(await isAdmin())) {
+    log.info("admin", "patch unauthorized");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = (await request.json()) as {
@@ -94,7 +101,11 @@ export async function PATCH(request: Request) {
       .from("variants")
       .update({ stock })
       .eq("sku", body.sku);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error) {
+      log.error("admin", "stock update failed", { sku: body.sku, error: error.message });
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    log.info("admin", "stock updated", { sku: body.sku, stock });
     return NextResponse.json({ ok: true });
   }
 
@@ -103,7 +114,15 @@ export async function PATCH(request: Request) {
       p_order_id: body.orderId,
       p_status: body.status,
     });
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error) {
+      log.error("admin", "status update failed", {
+        orderId: body.orderId,
+        status: body.status,
+        error: error.message,
+      });
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    log.info("admin", "status updated", { orderId: body.orderId, status: body.status });
     return NextResponse.json({ ok: true, payload: data });
   }
 
