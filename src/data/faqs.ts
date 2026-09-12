@@ -47,7 +47,7 @@ export const siteFaqs: FaqItem[] = [
   {
     question: "How do I cancel before the parcel ships?",
     answer:
-      "Use the cancel button on your order link while the order is still unpaid or paid and not yet packed. After it is packed or handed to Delhivery, wait for delivery and request a return within 7 days of the delivered date.",
+      "Use the cancel button on your order link while the parcel is still pending (prepaid or COD). After it is shipped with Delhivery, wait for delivery and request a return within 7 days of the delivered date.",
   },
   {
     question: "Are the dyes skin friendly?",

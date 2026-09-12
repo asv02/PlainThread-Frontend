@@ -53,11 +53,20 @@ export function AdminClient() {
     await load();
   }
 
-  async function setStatus(orderId: string, status: string) {
+  async function setParcel(orderId: string, parcel: string) {
     await fetch("/api/admin", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "status", orderId, status }),
+      body: JSON.stringify({ kind: "parcel", orderId, parcel }),
+    });
+    await load();
+  }
+
+  async function setPayment(orderId: string, payment: string) {
+    await fetch("/api/admin", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "payment", orderId, payment }),
     });
     await load();
   }
@@ -127,35 +136,69 @@ export function AdminClient() {
             <li key={order.id} className="border border-border p-4 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="font-medium">
-                  {order.public_id} · {order.status} · {formatPrice(order.total_paise / 100)}
+                  {order.public_id} · {order.payment_method ?? "unconfirmed"} ·{" "}
+                  {order.payment_status.replaceAll("_", " ")} · parcel {order.parcel_status} ·{" "}
+                  {formatPrice(order.total_paise / 100)}
                 </p>
-                {order.status === "paid" && (
+                {order.status === "open" && order.parcel_status === "pending" && order.payment_method && (
                   <button
                     type="button"
                     className="underline underline-offset-4"
-                    onClick={() => void setStatus(order.id, "packed")}
-                  >
-                    Mark packed
-                  </button>
-                )}
-                {order.status === "packed" && (
-                  <button
-                    type="button"
-                    className="underline underline-offset-4"
-                    onClick={() => void setStatus(order.id, "shipped")}
+                    onClick={() => void setParcel(order.id, "shipped")}
                   >
                     Mark shipped
                   </button>
                 )}
-                {order.status === "shipped" && (
+                {order.status === "open" && order.parcel_status === "shipped" && (
+                  <>
+                    <button
+                      type="button"
+                      className="underline underline-offset-4"
+                      onClick={() => void setParcel(order.id, "delivered")}
+                    >
+                      Mark delivered
+                    </button>
+                    <button
+                      type="button"
+                      className="underline underline-offset-4"
+                      onClick={() => void setParcel(order.id, "returned")}
+                    >
+                      Mark returned
+                    </button>
+                  </>
+                )}
+                {order.status === "open" && order.parcel_status === "delivered" && (
                   <button
                     type="button"
                     className="underline underline-offset-4"
-                    onClick={() => void setStatus(order.id, "delivered")}
+                    onClick={() => void setParcel(order.id, "returned")}
                   >
-                    Mark delivered
+                    Mark returned
                   </button>
                 )}
+                {order.status === "open" &&
+                  order.payment_method === "cod" &&
+                  order.payment_status === "pending_payment" && (
+                    <button
+                      type="button"
+                      className="underline underline-offset-4"
+                      onClick={() => void setPayment(order.id, "paid")}
+                    >
+                      Mark COD collected
+                    </button>
+                  )}
+                {order.status === "open" &&
+                  order.payment_method === "prepaid" &&
+                  order.parcel_status === "returned" &&
+                  (order.payment_status === "paid" || order.payment_status === "refund_pending") && (
+                    <button
+                      type="button"
+                      className="underline underline-offset-4"
+                      onClick={() => void setPayment(order.id, "refunded")}
+                    >
+                      Mark refunded
+                    </button>
+                  )}
               </div>
               <p className="mt-2">
                 {order.customer_name} · {order.email} · {order.phone}

@@ -1,11 +1,21 @@
 import type { OrderPayload, PublicOrder } from "@/lib/shop/types";
 
+export function isUnconfirmedHold(order: OrderPayload["order"]) {
+  return order.status === "open" && order.payment_method == null;
+}
+
+export function isConfirmedOrder(order: OrderPayload["order"]) {
+  return order.status === "open" && order.payment_method != null;
+}
+
 export function toPublicOrder(payload: OrderPayload): PublicOrder {
   const { order, items } = payload;
   return {
     publicId: order.public_id,
     status: order.status,
+    paymentMethod: order.payment_method ?? null,
     paymentStatus: order.payment_status,
+    parcelStatus: order.parcel_status ?? "pending",
     customerName: order.customer_name,
     email: order.email,
     phone: order.phone,
@@ -24,8 +34,7 @@ export function toPublicOrder(payload: OrderPayload): PublicOrder {
     shippingPaise: order.shipping_paise,
     totalPaise: order.total_paise,
     currency: order.currency,
-    holdExpiresAt:
-      order.status === "pending_payment" ? order.hold_expires_at : null,
+    holdExpiresAt: isUnconfirmedHold(order) ? order.hold_expires_at : null,
     failureReason: order.failure_reason,
     items: items.map((item) => ({
       name: item.name,
@@ -35,7 +44,7 @@ export function toPublicOrder(payload: OrderPayload): PublicOrder {
       qty: item.qty,
       unitPricePaise: item.unit_price_paise,
     })),
-    canCancel: order.status === "pending_payment" || order.status === "paid",
+    canCancel: order.status === "open" && (order.parcel_status ?? "pending") === "pending",
   };
 }
 

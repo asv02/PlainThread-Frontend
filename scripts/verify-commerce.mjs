@@ -167,6 +167,69 @@ async function main() {
     throw new Error("Hold-expiry pay did not restock after refund cancel");
   }
 
+  const codKey = `cod-${Date.now()}`;
+  const codOrder = await checkout(codKey);
+  const { data: cod } = await db.rpc("confirm_cod_order", {
+    p_order_id: codOrder.order.id,
+    p_payment_id: `cod_${codKey}`,
+  });
+  if (cod.result !== "cod_confirmed") {
+    throw new Error(`Expected cod_confirmed, got ${cod.result}`);
+  }
+  if (cod.payload.order.payment_method !== "cod") {
+    throw new Error("COD method not stored");
+  }
+  await db
+    .from("orders")
+    .update({ hold_expires_at: new Date(Date.now() - 60_000).toISOString() })
+    .eq("id", codOrder.order.id);
+  const { data: expired } = await db.rpc("expire_stale_orders", { p_exclude_id: null });
+  const { data: stillCod } = await db
+    .from("orders")
+    .select("status, payment_method")
+    .eq("id", codOrder.order.id)
+    .single();
+  if (stillCod.status !== "open" || stillCod.payment_method !== "cod") {
+    throw new Error(`COD expired by cron: ${JSON.stringify(stillCod)} expired=${expired}`);
+  }
+  const { data: shipUnpaid } = await db.rpc("admin_set_parcel", {
+    p_order_id: codOrder.order.id,
+    p_parcel: "shipped",
+  });
+  if (!shipUnpaid?.order) throw new Error("COD ship failed");
+  const { data: cancelShipped } = await db.rpc("cancel_customer_order", {
+    p_order_id: codOrder.order.id,
+    p_reason: "too_late",
+  });
+  if (cancelShipped.result !== "not_cancellable") {
+    throw new Error(`Expected not_cancellable after ship, got ${cancelShipped.result}`);
+  }
+  await db.rpc("admin_set_parcel", { p_order_id: codOrder.order.id, p_parcel: "delivered" });
+  await db.rpc("admin_set_parcel", { p_order_id: codOrder.order.id, p_parcel: "returned" });
+  const afterCodReturn = await stock();
+  if (afterCodReturn !== start) {
+    throw new Error(`COD return did not restock ${start} vs ${afterCodReturn}`);
+  }
+
+  const prepaidReturnKey = `ret-${Date.now()}`;
+  const prepaidReturn = await checkout(prepaidReturnKey);
+  await db.rpc("mark_order_paid", {
+    p_order_id: prepaidReturn.order.id,
+    p_payment_id: `sim_${prepaidReturnKey}`,
+  });
+  await db.rpc("admin_set_parcel", { p_order_id: prepaidReturn.order.id, p_parcel: "shipped" });
+  await db.rpc("admin_set_parcel", { p_order_id: prepaidReturn.order.id, p_parcel: "delivered" });
+  await db.rpc("admin_set_parcel", { p_order_id: prepaidReturn.order.id, p_parcel: "returned" });
+  const { error: refundCodErr } = await db.rpc("admin_set_payment", {
+    p_order_id: prepaidReturn.order.id,
+    p_payment: "refunded",
+  });
+  if (refundCodErr) throw refundCodErr;
+  const afterPrepaidReturn = await stock();
+  if (afterPrepaidReturn !== start) {
+    throw new Error("Prepaid return restock failed");
+  }
+
   console.log("inventory_and_payment_edges: ok");
 }
 

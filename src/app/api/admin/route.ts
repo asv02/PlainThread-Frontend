@@ -10,6 +10,8 @@ function toAdminOrder(order: DbOrder, items: DbOrderItem[]): AdminOrder {
     id: order.id,
     public_id: order.public_id,
     status: order.status,
+    payment_method: order.payment_method,
+    parcel_status: order.parcel_status,
     customer_name: order.customer_name,
     email: order.email,
     phone: order.phone,
@@ -85,11 +87,13 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = (await request.json()) as {
-    kind?: "stock" | "status";
+    kind?: "stock" | "status" | "parcel" | "payment";
     sku?: string;
     stock?: number;
     orderId?: string;
     status?: string;
+    parcel?: string;
+    payment?: string;
   };
 
   if (body.kind === "stock") {
@@ -110,9 +114,9 @@ export async function PATCH(request: Request) {
   }
 
   if (body.kind === "status" && body.orderId && body.status) {
-    const { data, error } = await supabaseAdmin().rpc("admin_set_status", {
+    const { data, error } = await supabaseAdmin().rpc("admin_set_parcel", {
       p_order_id: body.orderId,
-      p_status: body.status,
+      p_parcel: body.status,
     });
     if (error) {
       log.error("admin", "status update failed", {
@@ -123,6 +127,40 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     log.info("admin", "status updated", { orderId: body.orderId, status: body.status });
+    return NextResponse.json({ ok: true, payload: data });
+  }
+
+  if (body.kind === "parcel" && body.orderId && body.parcel) {
+    const { data, error } = await supabaseAdmin().rpc("admin_set_parcel", {
+      p_order_id: body.orderId,
+      p_parcel: body.parcel,
+    });
+    if (error) {
+      log.error("admin", "parcel update failed", {
+        orderId: body.orderId,
+        parcel: body.parcel,
+        error: error.message,
+      });
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    log.info("admin", "parcel updated", { orderId: body.orderId, parcel: body.parcel });
+    return NextResponse.json({ ok: true, payload: data });
+  }
+
+  if (body.kind === "payment" && body.orderId && body.payment) {
+    const { data, error } = await supabaseAdmin().rpc("admin_set_payment", {
+      p_order_id: body.orderId,
+      p_payment: body.payment,
+    });
+    if (error) {
+      log.error("admin", "payment update failed", {
+        orderId: body.orderId,
+        payment: body.payment,
+        error: error.message,
+      });
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    log.info("admin", "payment updated", { orderId: body.orderId, payment: body.payment });
     return NextResponse.json({ ok: true, payload: data });
   }
 

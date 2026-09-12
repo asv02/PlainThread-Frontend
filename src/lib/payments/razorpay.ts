@@ -41,18 +41,35 @@ export async function createRazorpayOrder(input: {
   amountPaise: number;
   receipt: string;
   notes?: Record<string, string>;
+  lineItems?: Array<{
+    sku: string;
+    variant_id: string;
+    name: string;
+    description: string;
+    quantity: number;
+    price: number;
+    offer_price: number;
+    image_url?: string;
+  }>;
 }) {
   if (!Number.isInteger(input.amountPaise) || input.amountPaise < 100) {
     throw new RazorpayRequestError("Amount must be at least 100 paise", 400);
   }
 
   try {
-    const order = await razorpayClient().orders.create({
+    const payload: Record<string, unknown> = {
       amount: input.amountPaise,
       currency: "INR",
       receipt: input.receipt.slice(0, 40),
       notes: input.notes,
-    });
+    };
+    if (input.lineItems?.length) {
+      payload.line_items = input.lineItems;
+      payload.line_items_total = input.amountPaise;
+    }
+    const order = await razorpayClient().orders.create(
+      payload as unknown as Parameters<ReturnType<typeof razorpayClient>["orders"]["create"]>[0],
+    );
     if (!order.id) throw new RazorpayRequestError("Razorpay did not return an order id", 500);
     log.debug("razorpay", "order created", { orderId: order.id, receipt: input.receipt });
     return {

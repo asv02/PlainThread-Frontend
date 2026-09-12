@@ -55,12 +55,23 @@ function invoiceHtml(payload: OrderPayload, kind: "customer" | "ops") {
       : `<tr><td>GST / IGST (${tax.taxPercent}%)</td><td style="text-align:right;">${money(tax.taxPaise)}</td></tr>`;
 
   const orderUrl = `${siteUrl()}/orders/${order.publicId}?token=${payload.order.access_token}`;
+  const isCod = payload.order.payment_method === "cod";
   const heading =
-    kind === "customer" ? "Payment invoice" : "New paid order";
+    kind === "customer"
+      ? isCod
+        ? "COD order confirmed"
+        : "Payment invoice"
+      : isCod
+        ? "New COD order"
+        : "New paid order";
   const intro =
     kind === "customer"
-      ? `Thanks ${escapeHtml(order.customerName)}. We received your payment for order <strong>${escapeHtml(order.publicId)}</strong>.`
-      : `Order <strong>${escapeHtml(order.publicId)}</strong> is paid and ready to pack.`;
+      ? isCod
+        ? `Thanks ${escapeHtml(order.customerName)}. Cash on delivery is confirmed for order <strong>${escapeHtml(order.publicId)}</strong>. Pay the courier when it arrives.`
+        : `Thanks ${escapeHtml(order.customerName)}. We received your payment for order <strong>${escapeHtml(order.publicId)}</strong>.`
+      : isCod
+        ? `Order <strong>${escapeHtml(order.publicId)}</strong> is COD and pending dispatch.`
+        : `Order <strong>${escapeHtml(order.publicId)}</strong> is paid and ready to dispatch.`;
 
   return `
   <div style="font-family:Georgia,serif;color:#111;max-width:560px;margin:0 auto;">
@@ -76,7 +87,7 @@ function invoiceHtml(payload: OrderPayload, kind: "customer" | "ops") {
           ? `<tr><td>Shipping</td><td style="text-align:right;">${money(lines.shippingPaise)}</td></tr>`
           : ""
       }
-      <tr><td style="padding-top:8px;"><strong>Total paid</strong></td><td style="text-align:right;padding-top:8px;"><strong>${money(lines.totalPaise)}</strong></td></tr>
+      <tr><td style="padding-top:8px;"><strong>${isCod ? "Total due on delivery" : "Total paid"}</strong></td><td style="text-align:right;padding-top:8px;"><strong>${money(lines.totalPaise)}</strong></td></tr>
     </table>
     <p style="margin-top:24px;color:#666;font-size:14px;line-height:1.6;">
       ${address}<br/>
@@ -90,7 +101,7 @@ function invoiceHtml(payload: OrderPayload, kind: "customer" | "ops") {
     ${
       kind === "customer"
         ? `<p><a href="${escapeHtml(orderUrl)}">View your order</a></p>`
-        : `<p>Open /admin to mark packed.</p>`
+        : `<p>Open /admin to mark shipped after iThink pickup is created.</p>`
     }
   </div>`;
 }
@@ -117,6 +128,7 @@ export async function sendPaidOrderEmails(payload: OrderPayload) {
   }
 
   const order = toPublicOrder(payload);
+  const isCod = payload.order.payment_method === "cod";
   const from = fromAddress();
   const customerDone = Boolean(payload.order.customer_email_sent_at);
   const opsDone = Boolean(payload.order.ops_email_sent_at);
@@ -130,7 +142,9 @@ export async function sendPaidOrderEmails(payload: OrderPayload) {
         .send({
           from,
           to: order.email,
-          subject: `Invoice ${order.publicId} · ${siteConfig.name}`,
+          subject: isCod
+            ? `COD order ${order.publicId} · ${siteConfig.name}`
+            : `Invoice ${order.publicId} · ${siteConfig.name}`,
           html: htmlCustomer,
         })
         .then((result) => ({ kind: "customer" as const, ok: !result.error }))
@@ -146,7 +160,9 @@ export async function sendPaidOrderEmails(payload: OrderPayload) {
         .send({
           from,
           to: opsInbox(),
-          subject: `Order paid ${order.publicId} · ${order.customerName}`,
+          subject: isCod
+            ? `COD ${order.publicId} · ${order.customerName}`
+            : `Order paid ${order.publicId} · ${order.customerName}`,
           html: htmlOps,
         })
         .then((result) => ({ kind: "ops" as const, ok: !result.error }))

@@ -107,6 +107,20 @@ export async function markOrderPaid(orderId: string, paymentId: string | null) {
   return paid;
 }
 
+export async function confirmCodOrder(orderId: string, paymentId: string | null) {
+  const { data, error } = await supabaseAdmin().rpc("confirm_cod_order", {
+    p_order_id: orderId,
+    p_payment_id: paymentId,
+  });
+  if (error) throw new Error(error.message);
+  const confirmed = data as {
+    result: string;
+    payload?: OrderPayload;
+  };
+  log.info("orders", "confirm_cod_order", { orderId, result: confirmed.result });
+  return confirmed;
+}
+
 export async function cancelCustomerOrder(orderId: string, reason: string) {
   const { data, error } = await supabaseAdmin().rpc("cancel_customer_order", {
     p_order_id: orderId,
@@ -166,7 +180,8 @@ export async function listOrdersNeedingPaidEmail(limit = 20) {
   const { data: orders, error } = await db
     .from("orders")
     .select("*")
-    .in("status", ["paid", "packed", "shipped", "delivered"])
+    .eq("status", "open")
+    .not("payment_method", "is", null)
     .or("customer_email_sent_at.is.null,ops_email_sent_at.is.null")
     .order("paid_at", { ascending: true })
     .limit(limit);

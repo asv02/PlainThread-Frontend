@@ -59,7 +59,13 @@ export function OrderView({ publicId }: { publicId: string }) {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <p className="text-sm uppercase tracking-[0.18em] text-secondary">{order.status.replaceAll("_", " ")}</p>
+      <p className="text-sm uppercase tracking-[0.18em] text-secondary">
+        {order.paymentMethod === "cod" ? "Cash on delivery" : order.paymentMethod === "prepaid" ? "Prepaid" : "Awaiting payment"}
+        {" · "}
+        {order.paymentStatus.replaceAll("_", " ")}
+        {" · parcel "}
+        {order.parcelStatus}
+      </p>
       <h1 className="font-serif text-4xl">{order.publicId}</h1>
       <ul className="divide-y divide-border border border-border">
         {order.items.map((item) => (
@@ -91,7 +97,7 @@ export function OrderView({ publicId }: { publicId: string }) {
           {working ? "Cancelling…" : "Cancel order and restock"}
         </button>
       )}
-      {order.status === "delivered" && (
+      {order.parcelStatus === "delivered" && (
         <p className="text-sm leading-6 text-secondary">
           Returns are open for 7 days from the delivered date, including after
           Delhivery has completed delivery. Email{" "}

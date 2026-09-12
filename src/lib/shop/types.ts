@@ -1,17 +1,14 @@
-export type OrderStatus =
-  | "pending_payment"
-  | "paid"
-  | "packed"
-  | "shipped"
-  | "delivered"
-  | "cancelled";
+export type OrderStatus = "open" | "cancelled";
+
+export type PaymentMethod = "prepaid" | "cod";
 
 export type PaymentStatus =
-  | "created"
-  | "failed"
+  | "pending_payment"
   | "paid"
   | "refund_pending"
   | "refunded";
+
+export type ParcelStatus = "pending" | "shipped" | "delivered" | "returned";
 
 export type DbOrder = {
   id: string;
@@ -19,6 +16,8 @@ export type DbOrder = {
   access_token: string;
   idempotency_key: string;
   status: OrderStatus;
+  payment_method: PaymentMethod | null;
+  parcel_status: ParcelStatus;
   customer_name: string;
   email: string;
   phone: string;
@@ -82,7 +81,9 @@ export type AdminOrder = Omit<DbOrder, "access_token" | "idempotency_key"> & {
 export type PublicOrder = {
   publicId: string;
   status: OrderStatus;
+  paymentMethod: PaymentMethod | null;
   paymentStatus: PaymentStatus;
+  parcelStatus: ParcelStatus;
   customerName: string;
   email: string;
   phone: string;

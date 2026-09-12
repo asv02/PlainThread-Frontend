@@ -8,12 +8,14 @@ import { priceCart, validateCustomer } from "@/lib/shop/pricing";
 import {
   razorpayConfigured,
   simulatedPaymentsAllowed,
+  siteUrl,
   stockHoldMinutes,
 } from "@/lib/shop/config";
 import { createRazorpayOrder, RazorpayRequestError } from "@/lib/payments/razorpay";
-import { toPublicOrder } from "@/lib/shop/serialize";
-import type { CartLine } from "@/lib/shop/types";
+import { isConfirmedOrder, toPublicOrder } from "@/lib/shop/serialize";
+import type { CartLine, OrderPayload } from "@/lib/shop/types";
 import { errMessage, log } from "@/lib/log";
+import { getProduct } from "@/data/products";
 
 export async function POST(request: Request) {
   const started = Date.now();
@@ -62,9 +64,9 @@ export async function POST(request: Request) {
       ms: Date.now() - started,
     });
 
-    if (payload.order.status === "paid") {
+    if (isConfirmedOrder(payload.order)) {
       return NextResponse.json({
-        alreadyPaid: true,
+        alreadyPaid: payload.order.payment_status === "paid" || payload.order.payment_method === "cod",
         order: toPublicOrder(payload),
         accessToken: payload.order.access_token,
       });
@@ -101,6 +103,7 @@ export async function POST(request: Request) {
             public_id: payload.order.public_id,
             email: payload.order.email,
           },
+          lineItems: magicLineItems(payload),
         });
         razorpayOrderId = razorpayOrder.order_id;
         await attachRazorpayOrder(payload.order.id, razorpayOrderId);
@@ -144,4 +147,37 @@ export async function POST(request: Request) {
     log.error("checkout", "failed", { error: message, status, ms: Date.now() - started });
     return NextResponse.json({ error: message }, { status });
   }
+}
+
+function magicLineItems(payload: OrderPayload) {
+  const origin = siteUrl();
+  const lines = payload.items.map((item) => {
+    const product = getProduct(item.product_slug);
+    const image = product?.images[0]?.src;
+    return {
+      sku: item.sku,
+      variant_id: `${item.product_slug}:${item.size}`,
+      name: item.name,
+      description: item.name,
+      quantity: item.qty,
+      price: item.unit_price_paise,
+      offer_price: item.unit_price_paise,
+      image_url: image ? `${origin}${image.startsWith("/") ? image : `/${image}`}` : undefined,
+    };
+  });
+  const goods = payload.items.reduce((sum, item) => sum + item.unit_price_paise * item.qty, 0);
+  const extra = payload.order.total_paise - goods;
+  if (extra > 0) {
+    lines.push({
+      sku: "PT-TAX-SHIP",
+      variant_id: "tax-shipping",
+      name: "GST and shipping",
+      description: "GST and shipping",
+      quantity: 1,
+      price: extra,
+      offer_price: extra,
+      image_url: undefined,
+    });
+  }
+  return lines;
 }

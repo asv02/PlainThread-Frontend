@@ -4,8 +4,9 @@
 -- Then verify: `npm run db:verify`
 --
 -- Tables: variants, orders, order_items, payment_events
--- RPCs: checkout_create, attach_razorpay_order, mark_order_paid,
---       cancel_customer_order, finalize_refund_cancel, expire_stale_orders, ...
+-- RPCs: checkout_create, attach_razorpay_order, mark_order_paid, confirm_cod_order,
+--       cancel_customer_order, finalize_refund_cancel, expire_stale_orders,
+--       admin_set_parcel, admin_set_payment, ...
 
 create extension if not exists pgcrypto;
 
@@ -24,15 +25,12 @@ create table if not exists public.orders (
   public_id text not null unique,
   access_token text not null unique,
   idempotency_key text not null,
-  status text not null default 'pending_payment'
-    check (status in (
-      'pending_payment',
-      'paid',
-      'packed',
-      'shipped',
-      'delivered',
-      'cancelled'
-    )),
+  status text not null default 'open'
+    check (status in ('open', 'cancelled')),
+  payment_method text
+    check (payment_method is null or payment_method in ('prepaid', 'cod')),
+  parcel_status text not null default 'pending'
+    check (parcel_status in ('pending', 'shipped', 'delivered', 'returned')),
   customer_name text not null,
   email text not null,
   phone text not null,
@@ -53,10 +51,9 @@ create table if not exists public.orders (
   currency text not null default 'INR',
   razorpay_order_id text unique,
   razorpay_payment_id text unique,
-  payment_status text not null default 'created'
+  payment_status text not null default 'pending_payment'
     check (payment_status in (
-      'created',
-      'failed',
+      'pending_payment',
       'paid',
       'refund_pending',
       'refunded'
@@ -80,13 +77,59 @@ alter table public.orders add column if not exists sgst_paise integer not null d
 alter table public.orders add column if not exists igst_paise integer not null default 0;
 alter table public.orders add column if not exists customer_email_sent_at timestamptz;
 alter table public.orders add column if not exists ops_email_sent_at timestamptz;
+alter table public.orders add column if not exists payment_method text;
+alter table public.orders add column if not exists parcel_status text;
 
+alter table public.orders drop constraint if exists orders_status_check;
+alter table public.orders drop constraint if exists orders_payment_status_check;
+alter table public.orders drop constraint if exists orders_payment_method_check;
+alter table public.orders drop constraint if exists orders_parcel_status_check;
+
+update public.orders
+set payment_status = 'pending_payment'
+where payment_status in ('created', 'failed');
+
+update public.orders
+set
+  payment_method = case
+    when payment_method in ('prepaid', 'cod') then payment_method
+    when payment_status in ('paid', 'refund_pending', 'refunded') then 'prepaid'
+    when status in ('paid', 'packed', 'shipped', 'delivered') then 'prepaid'
+    else payment_method
+  end,
+  parcel_status = case
+    when parcel_status in ('pending', 'shipped', 'delivered', 'returned') then parcel_status
+    when status = 'shipped' then 'shipped'
+    when status = 'delivered' then 'delivered'
+    else 'pending'
+  end,
+  status = case
+    when status = 'cancelled' then 'cancelled'
+    else 'open'
+  end;
+
+alter table public.orders alter column status set default 'open';
+alter table public.orders alter column payment_status set default 'pending_payment';
+alter table public.orders alter column parcel_status set default 'pending';
+alter table public.orders alter column parcel_status set not null;
+
+alter table public.orders add constraint orders_status_check
+  check (status in ('open', 'cancelled'));
+alter table public.orders add constraint orders_payment_status_check
+  check (payment_status in ('pending_payment', 'paid', 'refund_pending', 'refunded'));
+alter table public.orders add constraint orders_payment_method_check
+  check (payment_method is null or payment_method in ('prepaid', 'cod'));
+alter table public.orders add constraint orders_parcel_status_check
+  check (parcel_status in ('pending', 'shipped', 'delivered', 'returned'));
+
+drop index if exists orders_idempotency_active;
 create unique index if not exists orders_idempotency_active
   on public.orders (idempotency_key)
-  where status in ('pending_payment', 'paid', 'packed', 'shipped', 'delivered');
+  where status = 'open';
 
+drop index if exists orders_status_hold_idx;
 create index if not exists orders_status_hold_idx
-  on public.orders (status, hold_expires_at);
+  on public.orders (status, payment_method, hold_expires_at);
 
 create table if not exists public.order_items (
   id uuid primary key default gen_random_uuid(),
@@ -174,7 +217,9 @@ begin
     cancel_reason = p_reason,
     cancelled_at = now()
   where id = p_order_id
-    and status = 'pending_payment'
+    and status = 'open'
+    and parcel_status = 'pending'
+    and payment_status = 'pending_payment'
   returning id into updated_id;
 
   if updated_id is null then
@@ -200,7 +245,10 @@ begin
   for oid in
     select id
     from public.orders
-    where status = 'pending_payment'
+    where status = 'open'
+      and payment_method is null
+      and payment_status = 'pending_payment'
+      and parcel_status = 'pending'
       and hold_expires_at < now()
       and (p_exclude_id is null or id <> p_exclude_id)
     for update skip locked
@@ -274,7 +322,7 @@ begin
   select o.id into existing_id
   from public.orders o
   where o.idempotency_key = p_idempotency_key
-    and o.status in ('pending_payment', 'paid', 'packed', 'shipped', 'delivered')
+    and o.status = 'open'
   limit 1;
 
   if existing_id is not null then
@@ -289,7 +337,8 @@ begin
       state = coalesce(p_customer->>'state', state),
       pincode = coalesce(p_customer->>'pincode', pincode)
     where id = existing_id
-      and status = 'pending_payment';
+      and status = 'open'
+      and payment_method is null;
     return public.order_payload(existing_id);
   end if;
 
@@ -369,7 +418,7 @@ begin
     coalesce(p_igst_paise, 0),
     p_shipping_paise,
     p_total_paise,
-    now() + make_interval(mins => greatest(5, least(coalesce(p_hold_minutes, 15), 60)))
+    now() + make_interval(mins => greatest(2, least(coalesce(p_hold_minutes, 2), 60)))
   )
   returning id into new_id;
 
@@ -397,7 +446,7 @@ exception
     select o.id into existing_id
     from public.orders o
     where o.idempotency_key = p_idempotency_key
-      and o.status in ('pending_payment', 'paid', 'packed', 'shipped', 'delivered')
+      and o.status = 'open'
     limit 1;
     if existing_id is null then
       raise;
@@ -413,7 +462,8 @@ exception
       state = coalesce(p_customer->>'state', state),
       pincode = coalesce(p_customer->>'pincode', pincode)
     where id = existing_id
-      and status = 'pending_payment';
+      and status = 'open'
+      and payment_method is null;
     return public.order_payload(existing_id);
 end;
 $$;
@@ -429,7 +479,8 @@ begin
   update public.orders
   set razorpay_order_id = coalesce(razorpay_order_id, p_razorpay_order_id)
   where id = p_order_id
-    and status = 'pending_payment';
+    and status = 'open'
+    and payment_method is null;
 end;
 $$;
 
@@ -442,9 +493,10 @@ language plpgsql
 as $$
 begin
   update public.orders
-  set payment_status = 'failed', failure_reason = p_reason
+  set failure_reason = p_reason
   where id = p_order_id
-    and status = 'pending_payment'
+    and status = 'open'
+    and payment_method is null
     and payment_status <> 'paid';
 end;
 $$;
@@ -458,11 +510,15 @@ language plpgsql
 as $$
 declare
   s text;
+  method text;
+  pay_status text;
+  parcel text;
   existing_payment text;
 begin
   perform public.expire_stale_orders(p_order_id);
 
-  select status, razorpay_payment_id into s, existing_payment
+  select status, payment_method, payment_status, parcel_status, razorpay_payment_id
+    into s, method, pay_status, parcel, existing_payment
   from public.orders
   where id = p_order_id
   for update;
@@ -471,7 +527,7 @@ begin
     return jsonb_build_object('result', 'not_found');
   end if;
 
-  if s = 'paid' or s in ('packed', 'shipped', 'delivered') then
+  if pay_status = 'paid' then
     return jsonb_build_object(
       'result', 'already_paid',
       'razorpay_payment_id', existing_payment,
@@ -483,13 +539,17 @@ begin
     return jsonb_build_object('result', 'late_payment', 'payload', public.order_payload(p_order_id));
   end if;
 
-  if s <> 'pending_payment' then
+  if method = 'cod' then
+    return jsonb_build_object('result', 'invalid_state', 'payload', public.order_payload(p_order_id));
+  end if;
+
+  if s <> 'open' or pay_status <> 'pending_payment' then
     return jsonb_build_object('result', 'invalid_state', 'payload', public.order_payload(p_order_id));
   end if;
 
   update public.orders
   set
-    status = 'paid',
+    payment_method = 'prepaid',
     payment_status = 'paid',
     razorpay_payment_id = coalesce(p_payment_id, razorpay_payment_id),
     paid_at = now(),
@@ -500,19 +560,73 @@ begin
 end;
 $$;
 
+create or replace function public.confirm_cod_order(
+  p_order_id uuid,
+  p_payment_id text
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  s text;
+  method text;
+  pay_status text;
+begin
+  perform public.expire_stale_orders(p_order_id);
+
+  select status, payment_method, payment_status
+    into s, method, pay_status
+  from public.orders
+  where id = p_order_id
+  for update;
+
+  if s is null then
+    return jsonb_build_object('result', 'not_found');
+  end if;
+
+  if s = 'cancelled' then
+    return jsonb_build_object('result', 'late_cod', 'payload', public.order_payload(p_order_id));
+  end if;
+
+  if method = 'cod' then
+    return jsonb_build_object('result', 'already_cod', 'payload', public.order_payload(p_order_id));
+  end if;
+
+  if pay_status = 'paid' or method = 'prepaid' then
+    return jsonb_build_object('result', 'already_paid', 'payload', public.order_payload(p_order_id));
+  end if;
+
+  if s <> 'open' or pay_status <> 'pending_payment' then
+    return jsonb_build_object('result', 'invalid_state', 'payload', public.order_payload(p_order_id));
+  end if;
+
+  update public.orders
+  set
+    payment_method = 'cod',
+    payment_status = 'pending_payment',
+    razorpay_payment_id = coalesce(nullif(p_payment_id, ''), razorpay_payment_id),
+    failure_reason = null
+  where id = p_order_id;
+
+  return jsonb_build_object('result', 'cod_confirmed', 'payload', public.order_payload(p_order_id));
+end;
+$$;
+
 create or replace function public.cancel_customer_order(p_order_id uuid, p_reason text)
 returns jsonb
 language plpgsql
 as $$
 declare
   s text;
+  method text;
   pay_status text;
+  parcel text;
   payment_id text;
 begin
   perform public.expire_stale_orders();
 
-  select status, payment_status, razorpay_payment_id
-  into s, pay_status, payment_id
+  select status, payment_method, payment_status, parcel_status, razorpay_payment_id
+  into s, method, pay_status, parcel, payment_id
   from public.orders
   where id = p_order_id
   for update;
@@ -525,12 +639,11 @@ begin
     return jsonb_build_object('result', 'already_cancelled', 'payload', public.order_payload(p_order_id));
   end if;
 
-  if s = 'pending_payment' then
-    perform public.restock_and_cancel(p_order_id, coalesce(p_reason, 'customer_cancelled'));
-    return jsonb_build_object('result', 'cancelled_pending', 'payload', public.order_payload(p_order_id));
+  if s <> 'open' or parcel <> 'pending' then
+    return jsonb_build_object('result', 'not_cancellable', 'status', s, 'payload', public.order_payload(p_order_id));
   end if;
 
-  if s = 'paid' then
+  if pay_status = 'paid' or pay_status = 'refund_pending' then
     update public.orders
     set payment_status = 'refund_pending', cancel_reason = coalesce(p_reason, 'customer_cancelled')
     where id = p_order_id;
@@ -541,7 +654,8 @@ begin
     );
   end if;
 
-  return jsonb_build_object('result', 'not_cancellable', 'status', s, 'payload', public.order_payload(p_order_id));
+  perform public.restock_and_cancel(p_order_id, coalesce(p_reason, 'customer_cancelled'));
+  return jsonb_build_object('result', 'cancelled_pending', 'payload', public.order_payload(p_order_id));
 end;
 $$;
 
@@ -551,8 +665,10 @@ language plpgsql
 as $$
 declare
   s text;
+  pay_status text;
+  parcel text;
 begin
-  select status into s
+  select status, payment_status, parcel_status into s, pay_status, parcel
   from public.orders
   where id = p_order_id
   for update;
@@ -561,7 +677,7 @@ begin
     return jsonb_build_object('result', 'already_cancelled', 'payload', public.order_payload(p_order_id));
   end if;
 
-  if s <> 'paid' then
+  if s <> 'open' or parcel <> 'pending' or pay_status <> 'refund_pending' then
     return jsonb_build_object('result', 'invalid_state', 'status', s);
   end if;
 
@@ -578,18 +694,24 @@ begin
 end;
 $$;
 
-create or replace function public.admin_set_status(p_order_id uuid, p_status text)
+create or replace function public.admin_set_parcel(p_order_id uuid, p_parcel text)
 returns jsonb
 language plpgsql
 as $$
 declare
   s text;
+  method text;
+  parcel text;
 begin
-  if p_status not in ('packed', 'shipped', 'delivered') then
+  if p_parcel not in ('shipped', 'delivered', 'returned') then
     raise exception 'INVALID_STATUS';
   end if;
 
-  select status into s from public.orders where id = p_order_id for update;
+  select status, payment_method, parcel_status
+    into s, method, parcel
+  from public.orders
+  where id = p_order_id
+  for update;
 
   if s is null then
     return jsonb_build_object('result', 'not_found');
@@ -599,18 +721,90 @@ begin
     return jsonb_build_object('result', 'not_cancellable');
   end if;
 
-  if p_status = 'packed' and s <> 'paid' then
-    raise exception 'INVALID_TRANSITION';
-  end if;
-  if p_status = 'shipped' and s not in ('paid', 'packed') then
-    raise exception 'INVALID_TRANSITION';
-  end if;
-  if p_status = 'delivered' and s not in ('packed', 'shipped') then
+  if method is null then
     raise exception 'INVALID_TRANSITION';
   end if;
 
-  update public.orders set status = p_status where id = p_order_id;
+  if p_parcel = 'shipped' and parcel <> 'pending' then
+    raise exception 'INVALID_TRANSITION';
+  end if;
+  if p_parcel = 'delivered' and parcel <> 'shipped' then
+    raise exception 'INVALID_TRANSITION';
+  end if;
+  if p_parcel = 'returned' and parcel not in ('shipped', 'delivered') then
+    raise exception 'INVALID_TRANSITION';
+  end if;
+
+  update public.orders set parcel_status = p_parcel where id = p_order_id;
+
+  if p_parcel = 'returned' then
+    perform public.restock_order_items(p_order_id);
+  end if;
+
   return public.order_payload(p_order_id);
+end;
+$$;
+
+create or replace function public.admin_set_payment(p_order_id uuid, p_payment text)
+returns jsonb
+language plpgsql
+as $$
+declare
+  s text;
+  method text;
+  pay_status text;
+  parcel text;
+begin
+  if p_payment not in ('paid', 'refunded') then
+    raise exception 'INVALID_STATUS';
+  end if;
+
+  select status, payment_method, payment_status, parcel_status
+    into s, method, pay_status, parcel
+  from public.orders
+  where id = p_order_id
+  for update;
+
+  if s is null then
+    return jsonb_build_object('result', 'not_found');
+  end if;
+
+  if s = 'cancelled' then
+    return jsonb_build_object('result', 'not_cancellable');
+  end if;
+
+  if p_payment = 'paid' then
+    if method <> 'cod' or pay_status <> 'pending_payment' then
+      raise exception 'INVALID_TRANSITION';
+    end if;
+    update public.orders
+    set payment_status = 'paid', paid_at = now(), failure_reason = null
+    where id = p_order_id;
+    return public.order_payload(p_order_id);
+  end if;
+
+  if method <> 'prepaid' or parcel <> 'returned' or pay_status not in ('paid', 'refund_pending') then
+    raise exception 'INVALID_TRANSITION';
+  end if;
+
+  update public.orders
+  set payment_status = 'refunded'
+  where id = p_order_id;
+
+  return public.order_payload(p_order_id);
+end;
+$$;
+
+-- Legacy admin name: packed is no longer a parcel state.
+create or replace function public.admin_set_status(p_order_id uuid, p_status text)
+returns jsonb
+language plpgsql
+as $$
+begin
+  if p_status = 'packed' then
+    raise exception 'INVALID_STATUS';
+  end if;
+  return public.admin_set_parcel(p_order_id, p_status);
 end;
 $$;
 
@@ -641,10 +835,13 @@ revoke all on function public.checkout_create(text, jsonb, jsonb, integer, integ
 revoke all on function public.attach_razorpay_order(uuid, text) from public, anon, authenticated;
 revoke all on function public.mark_payment_failed(uuid, text) from public, anon, authenticated;
 revoke all on function public.mark_order_paid(uuid, text) from public, anon, authenticated;
+revoke all on function public.confirm_cod_order(uuid, text) from public, anon, authenticated;
 revoke all on function public.cancel_customer_order(uuid, text) from public, anon, authenticated;
 revoke all on function public.finalize_refund_cancel(uuid) from public, anon, authenticated;
 revoke all on function public.expire_stale_orders(uuid) from public, anon, authenticated;
 revoke all on function public.admin_set_status(uuid, text) from public, anon, authenticated;
+revoke all on function public.admin_set_parcel(uuid, text) from public, anon, authenticated;
+revoke all on function public.admin_set_payment(uuid, text) from public, anon, authenticated;
 revoke all on function public.order_payload(uuid) from public, anon, authenticated;
 revoke all on function public.restock_order_items(uuid) from public, anon, authenticated;
 revoke all on function public.restock_and_cancel(uuid, text) from public, anon, authenticated;
@@ -653,8 +850,11 @@ grant execute on function public.checkout_create(text, jsonb, jsonb, integer, in
 grant execute on function public.attach_razorpay_order(uuid, text) to service_role;
 grant execute on function public.mark_payment_failed(uuid, text) to service_role;
 grant execute on function public.mark_order_paid(uuid, text) to service_role;
+grant execute on function public.confirm_cod_order(uuid, text) to service_role;
 grant execute on function public.cancel_customer_order(uuid, text) to service_role;
 grant execute on function public.finalize_refund_cancel(uuid) to service_role;
 grant execute on function public.expire_stale_orders(uuid) to service_role;
 grant execute on function public.admin_set_status(uuid, text) to service_role;
+grant execute on function public.admin_set_parcel(uuid, text) to service_role;
+grant execute on function public.admin_set_payment(uuid, text) to service_role;
 grant execute on function public.order_payload(uuid) to service_role;

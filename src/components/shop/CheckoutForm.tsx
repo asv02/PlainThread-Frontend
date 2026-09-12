@@ -38,6 +38,20 @@ function newCheckoutKey() {
   return crypto.randomUUID();
 }
 
+async function pollOrder(publicId: string, accessToken: string) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const res = await fetch(`/api/orders/${publicId}?token=${encodeURIComponent(accessToken)}`, {
+      cache: "no-store",
+    });
+    const data = (await res.json()) as CheckoutResponse;
+    if (data.order && (data.order.paymentMethod || data.order.paymentStatus === "paid")) {
+      return { order: data.order, accessToken };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  }
+  return null;
+}
+
 export function CheckoutForm() {
   const router = useRouter();
   const { items, clearCart, refreshStock } = useShop();
@@ -149,6 +163,8 @@ export function CheckoutForm() {
         name: siteConfig.name,
         description: `Order ${publicId}`,
         order_id: razorpayOrderId,
+        one_click_checkout: true,
+        show_coupons: false,
         prefill: {
           name: form.name,
           email: form.email,
@@ -157,49 +173,83 @@ export function CheckoutForm() {
         theme: { color: "#111111" },
         modal: {
           ondismiss: () => {
-            setError(
-              "Payment window closed. If you did not finish paying, this order is held for 15 minutes — click Pay again. If you already paid, keep this page or check email.",
-            );
-            setLoading(false);
-            busy.current = false;
+            void (async () => {
+              const confirmed = await pollOrder(publicId, accessToken);
+              if (confirmed?.order && confirmed.accessToken) {
+                goToOrder(confirmed.order, confirmed.accessToken);
+                return;
+              }
+              setError(
+                "Payment window closed. If you did not finish paying or placing COD, this order is held for 2 minutes — click Pay again. If you already paid or chose COD, keep this page or check email.",
+              );
+              setLoading(false);
+              busy.current = false;
+            })();
           },
         },
         handler: async (response: {
-          razorpay_order_id: string;
-          razorpay_payment_id: string;
-          razorpay_signature: string;
+          razorpay_order_id?: string;
+          razorpay_payment_id?: string;
+          razorpay_signature?: string;
         }) => {
+          if (response.razorpay_signature && response.razorpay_order_id && response.razorpay_payment_id) {
+            const verify = await fetch("/api/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                publicId,
+                accessToken,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+            const verified = (await verify.json()) as CheckoutResponse & { result?: string };
+            if (verified.result === "late_payment") {
+              setError(verified.error || "Payment was refunded because the order was cancelled.");
+              setLoading(false);
+              busy.current = false;
+              return;
+            }
+            if (!verify.ok || !verified.order || !verified.accessToken) {
+              setError(verified.error || "Payment received. Confirming… keep this page open.");
+              setLoading(false);
+              busy.current = false;
+              return;
+            }
+            goToOrder(verified.order, verified.accessToken);
+            return;
+          }
+
           const verify = await fetch("/api/verify-payment", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               publicId,
               accessToken,
-              razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
+              cod: true,
             }),
           });
-          const verified = (await verify.json()) as CheckoutResponse & { result?: string };
-          if (verified.result === "late_payment") {
-            setError(verified.error || "Payment was refunded because the order was cancelled.");
-            setLoading(false);
-            busy.current = false;
+          const verified = (await verify.json()) as CheckoutResponse;
+          if (verified.order && verified.accessToken) {
+            goToOrder(verified.order, verified.accessToken);
             return;
           }
-          if (!verify.ok || !verified.order || !verified.accessToken) {
-            setError(verified.error || "Payment received. Confirming… keep this page open.");
-            setLoading(false);
-            busy.current = false;
+          const polled = await pollOrder(publicId, accessToken);
+          if (polled?.order && polled.accessToken) {
+            goToOrder(polled.order, polled.accessToken);
             return;
           }
-          goToOrder(verified.order, verified.accessToken);
+          setError("COD is confirming. Keep this page open or check your email in a minute.");
+          setLoading(false);
+          busy.current = false;
         },
       });
       razorpay.on("payment.failed", (response) => {
         setError(
           response.error?.description ||
-            "Payment failed. You can retry in the checkout window, or wait 15 minutes for the hold to end.",
+            "Payment failed. You can retry in the checkout window, or wait 2 minutes for the hold to end.",
         );
       });
       razorpay.open();
@@ -218,7 +268,7 @@ export function CheckoutForm() {
   return (
     <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr]">
       <Script
-        src="https://checkout.razorpay.com/v1/checkout.js"
+        src="https://checkout.razorpay.com/v1/magic-checkout.js"
         strategy="afterInteractive"
         onLoad={() => setCheckoutReady(true)}
       />
@@ -266,12 +316,14 @@ export function CheckoutForm() {
             ? "Processing…"
             : !checkoutReady
               ? "Loading payment…"
-              : `Pay ${formatPrice((totals?.totalPaise ?? 0) / 100)}`}
+              : `Pay or place COD ${formatPrice((totals?.totalPaise ?? 0) / 100)}`}
         </button>
         <p className="text-xs leading-5 text-secondary">
-          Stock is held for 15 minutes after you start payment. Closing the payment window
-          keeps the hold so a completed UPI/card charge is not refunded. Duplicate clicks use
-          the same checkout and cannot double-charge. Returns are accepted within 7 days of
+          Stock is held for 2 minutes after you start checkout. Closing the window
+          keeps the hold so a completed UPI/card charge is not refunded. Cash on
+          delivery is available in Razorpay Magic Checkout. Duplicate clicks use
+          the same checkout and cannot double-charge. Cancel from your order link
+          while the parcel is still pending. Returns are accepted within 7 days of
           the delivered date.{" "}
           <a href="/shipping-returns" className="underline underline-offset-2">
             Shipping &amp; returns

@@ -47,10 +47,15 @@ const expectedRpcs = [
   "finalize_refund_cancel",
   "expire_stale_orders",
   "admin_set_status",
+  "admin_set_parcel",
+  "admin_set_payment",
+  "confirm_cod_order",
 ];
 const expectedOrderCols = [
   "public_id",
   "access_token",
+  "payment_method",
+  "parcel_status",
   "tax_paise",
   "tax_rate_bps",
   "tax_kind",

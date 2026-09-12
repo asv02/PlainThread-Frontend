@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyCheckoutSignature } from "@/lib/payments/razorpay";
-import { completeCapturedPayment } from "@/lib/shop/complete-payment";
+import { completeCapturedPayment, completeCodOrder } from "@/lib/shop/complete-payment";
 import { getOrderByPublicId } from "@/lib/shop/orders";
 import { simulatedPaymentsAllowed } from "@/lib/shop/config";
 import { timingSafeEqual, toPublicOrder } from "@/lib/shop/serialize";
@@ -15,6 +15,7 @@ export async function POST(request: Request) {
       razorpay_payment_id?: string;
       razorpay_signature?: string;
       simulate?: boolean;
+      cod?: boolean;
     };
 
     log.debug("verify-payment", "request", {
@@ -29,6 +30,14 @@ export async function POST(request: Request) {
         publicId: body.publicId,
       });
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    if (payload.order.payment_method === "cod" || payload.order.payment_status === "paid") {
+      return NextResponse.json({
+        result: payload.order.payment_method === "cod" ? "cod_confirmed" : "already_paid",
+        order: toPublicOrder(payload),
+        accessToken: payload.order.access_token,
+      });
     }
 
     if (body.simulate) {
@@ -69,6 +78,20 @@ export async function POST(request: Request) {
     const fieldsMissing =
       !body.razorpay_order_id || !body.razorpay_payment_id || !body.razorpay_signature;
     if (fieldsMissing) {
+      if (body.cod) {
+        const result = await completeCodOrder(
+          payload.order.id,
+          body.razorpay_payment_id ?? null,
+        );
+        if (!result.payload) {
+          return NextResponse.json({ error: "Could not confirm COD order" }, { status: 409 });
+        }
+        return NextResponse.json({
+          result: result.result,
+          order: toPublicOrder(result.payload),
+          accessToken: result.payload.order.access_token,
+        });
+      }
       log.info("verify-payment", "missing razorpay fields", { publicId: payload.order.public_id });
       return NextResponse.json(
         { error: "Missing razorpay_order_id, razorpay_payment_id, or razorpay_signature" },

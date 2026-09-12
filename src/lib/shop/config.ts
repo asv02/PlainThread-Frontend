@@ -4,8 +4,8 @@ export function shippingPaise() {
 }
 
 export function stockHoldMinutes() {
-  const minutes = Number(process.env.STOCK_HOLD_MINUTES ?? "15");
-  return Number.isFinite(minutes) ? Math.min(60, Math.max(5, minutes)) : 15;
+  const minutes = Number(process.env.STOCK_HOLD_MINUTES ?? "2");
+  return Number.isFinite(minutes) ? Math.min(60, Math.max(2, minutes)) : 2;
 }
 
 export function siteUrl() {
@@ -30,4 +30,9 @@ export function razorpayConfigured() {
       process.env.RAZORPAY_KEY_SECRET &&
       process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
   );
+}
+
+export function codFeePaise() {
+  const paise = Number(process.env.COD_FEE_PAISE ?? "0");
+  return Number.isFinite(paise) ? Math.max(0, Math.round(paise)) : 0;
 }
