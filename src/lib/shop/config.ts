@@ -32,6 +32,17 @@ export function razorpayConfigured() {
   );
 }
 
+export function smsConfigured() {
+  return Boolean(
+    (process.env.MSG91_AUTH_KEY && process.env.MSG91_TEMPLATE_ID) ||
+      (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM),
+  );
+}
+
+export function otpSecret() {
+  return process.env.OTP_SECRET || process.env.ADMIN_PASSWORD || process.env.RAZORPAY_KEY_SECRET || "";
+}
+
 export function codFeePaise() {
   const paise = Number(process.env.COD_FEE_PAISE ?? "0");
   return Number.isFinite(paise) ? Math.max(0, Math.round(paise)) : 0;

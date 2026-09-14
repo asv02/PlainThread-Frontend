@@ -15,6 +15,7 @@ import { createRazorpayOrder, RazorpayRequestError } from "@/lib/payments/razorp
 import { isConfirmedOrder, toPublicOrder } from "@/lib/shop/serialize";
 import type { CartLine, OrderPayload } from "@/lib/shop/types";
 import { errMessage, log } from "@/lib/log";
+import { assertCheckoutVerified } from "@/lib/shop/otp";
 import { getProduct } from "@/data/products";
 
 export async function POST(request: Request) {
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
       idempotencyKey?: string;
       items?: CartLine[];
       customer?: Parameters<typeof validateCustomer>[0];
+      verifyToken?: string;
     };
 
     const idempotencyKey = body.idempotencyKey?.trim() ?? "";
@@ -33,6 +35,11 @@ export async function POST(request: Request) {
     }
 
     const customer = validateCustomer(body.customer ?? {});
+    await assertCheckoutVerified({
+      token: body.verifyToken,
+      email: customer.email,
+      phone: customer.phone,
+    });
     const priced = priceCart(body.items ?? [], { destinationState: customer.state });
     log.debug("checkout", "priced cart", {
       lines: priced.items.length,

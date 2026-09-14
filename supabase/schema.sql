@@ -154,6 +154,30 @@ create table if not exists public.payment_events (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.checkout_otps (
+  id uuid primary key default gen_random_uuid(),
+  channel text not null check (channel in ('email', 'phone')),
+  destination text not null,
+  code_hash text not null,
+  expires_at timestamptz not null,
+  attempts integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists checkout_otps_destination_idx
+  on public.checkout_otps (channel, destination, created_at desc);
+
+create table if not exists public.checkout_verify_sessions (
+  id uuid primary key default gen_random_uuid(),
+  token text not null unique,
+  email text,
+  phone text,
+  email_verified boolean not null default false,
+  phone_verified boolean not null default false,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
 alter table public.variants add column if not exists created_at timestamptz not null default now();
 alter table public.order_items add column if not exists created_at timestamptz not null default now();
 alter table public.orders add column if not exists created_at timestamptz not null default now();
@@ -163,6 +187,8 @@ alter table public.variants enable row level security;
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
 alter table public.payment_events enable row level security;
+alter table public.checkout_otps enable row level security;
+alter table public.checkout_verify_sessions enable row level security;
 
 -- Anon has no policies: all commerce goes through the Next.js service role.
 
@@ -830,6 +856,8 @@ revoke all on public.variants from anon, authenticated;
 revoke all on public.orders from anon, authenticated;
 revoke all on public.order_items from anon, authenticated;
 revoke all on public.payment_events from anon, authenticated;
+revoke all on public.checkout_otps from anon, authenticated;
+revoke all on public.checkout_verify_sessions from anon, authenticated;
 
 revoke all on function public.checkout_create(text, jsonb, jsonb, integer, integer, integer, integer, integer, integer, text, integer, integer, integer) from public, anon, authenticated;
 revoke all on function public.attach_razorpay_order(uuid, text) from public, anon, authenticated;

@@ -116,6 +116,28 @@ function fromAddress() {
   return process.env.EMAIL_FROM || `Plain Thread <${siteConfig.email}>`;
 }
 
+export async function sendOtpEmail(email: string, code: string) {
+  const resend = resendClient();
+  if (!resend) throw new Error("Email is not configured yet.");
+  const { error } = await resend.emails.send({
+    from: fromAddress(),
+    to: email,
+    subject: `${code} is your Plain Thread checkout code`,
+    html: `
+      <div style="font-family:Georgia,serif;color:#111;max-width:480px;margin:0 auto;">
+        <p style="letter-spacing:0.18em;font-size:12px;text-transform:uppercase;">${escapeHtml(siteConfig.name)}</p>
+        <h1 style="font-size:28px;font-weight:normal;">Checkout code</h1>
+        <p>Use this code to confirm your email. It expires in 10 minutes.</p>
+        <p style="font-size:32px;letter-spacing:0.2em;">${escapeHtml(code)}</p>
+      </div>`,
+  });
+  if (error) {
+    log.error("email", "otp send failed", { error: errMessage(error) });
+    throw new Error("Could not send the email code.");
+  }
+  log.info("email", "otp sent");
+}
+
 function opsInbox() {
   return process.env.ORDER_NOTIFY_EMAIL || siteConfig.email;
 }

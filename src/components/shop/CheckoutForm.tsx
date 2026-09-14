@@ -57,9 +57,16 @@ export function CheckoutForm() {
   const { items, clearCart, refreshStock } = useShop();
   const busy = useRef(false);
   const keyRef = useRef<string>(newCheckoutKey());
+  const verifyToken = useRef("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [checkoutReady, setCheckoutReady] = useState(false);
+  const [phoneOtpEnabled, setPhoneOtpEnabled] = useState(false);
+  const [emailCode, setEmailCode] = useState("");
+  const [phoneCode, setPhoneCode] = useState("");
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [otpBusy, setOtpBusy] = useState<"email" | "phone" | null>(null);
 
   useEffect(() => {
     keyRef.current = newCheckoutKey();
@@ -67,6 +74,13 @@ export function CheckoutForm() {
 
   useEffect(() => {
     if (window.Razorpay) setCheckoutReady(true);
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/checkout/otp", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { phone?: boolean }) => setPhoneOtpEnabled(Boolean(data.phone)))
+      .catch(() => setPhoneOtpEnabled(false));
   }, []);
   const [form, setForm] = useState({
     name: "",
@@ -104,8 +118,62 @@ export function CheckoutForm() {
     router.push(`/orders/${order.publicId}?token=${token}`);
   }
 
+  async function sendCode(channel: "email" | "phone") {
+    setError("");
+    setOtpBusy(channel);
+    try {
+      const res = await fetch("/api/checkout/otp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          destination: channel === "email" ? form.email : form.phone,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Could not send code");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send code");
+    } finally {
+      setOtpBusy(null);
+    }
+  }
+
+  async function confirmCode(channel: "email" | "phone") {
+    setError("");
+    setOtpBusy(channel);
+    try {
+      const res = await fetch("/api/checkout/otp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          destination: channel === "email" ? form.email : form.phone,
+          code: channel === "email" ? emailCode : phoneCode,
+          sessionToken: verifyToken.current,
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        sessionToken?: string;
+        emailVerified?: boolean;
+        phoneVerified?: boolean;
+      };
+      if (!res.ok) throw new Error(data.error || "Could not verify code");
+      if (data.sessionToken) verifyToken.current = data.sessionToken;
+      setEmailVerified(Boolean(data.emailVerified));
+      setPhoneVerified(Boolean(data.phoneVerified));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not verify code");
+    } finally {
+      setOtpBusy(null);
+    }
+  }
+
+  const canPay = emailVerified && (!phoneOtpEnabled || phoneVerified);
+
   async function onPay() {
-    if (busy.current || !pricedCart.ok) return;
+    if (busy.current || !pricedCart.ok || !canPay) return;
     busy.current = true;
     setLoading(true);
     setError("");
@@ -117,6 +185,7 @@ export function CheckoutForm() {
           idempotencyKey: keyRef.current,
           items,
           customer: form,
+          verifyToken: verifyToken.current,
         }),
       });
       const data = (await res.json()) as CheckoutResponse;
@@ -282,8 +351,6 @@ export function CheckoutForm() {
         {(
           [
             ["name", "Full name"],
-            ["email", "Email"],
-            ["phone", "Mobile number"],
             ["address_line1", "Address"],
             ["address_line2", "Apartment, landmark (optional)"],
             ["city", "City"],
@@ -303,20 +370,120 @@ export function CheckoutForm() {
             />
           </label>
         ))}
+        <div className="space-y-2">
+          <label className="block text-sm">
+            <span className="text-secondary">Email</span>
+            <input
+              required
+              type="email"
+              value={form.email}
+              onChange={(event) => {
+                setEmailVerified(false);
+                setForm((current) => ({ ...current, email: event.target.value }));
+              }}
+              className="mt-1 w-full border border-border bg-card px-3 py-2.5 outline-none focus:border-foreground"
+            />
+          </label>
+          {emailVerified ? (
+            <p className="text-xs text-secondary">Email verified.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={otpBusy !== null}
+                onClick={() => void sendCode("email")}
+                className="border border-foreground px-3 py-2 text-xs disabled:opacity-50"
+              >
+                {otpBusy === "email" ? "Sending…" : "Send email code"}
+              </button>
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="6-digit code"
+                value={emailCode}
+                onChange={(event) => setEmailCode(event.target.value)}
+                className="w-32 border border-border bg-card px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                disabled={otpBusy !== null || emailCode.length < 6}
+                onClick={() => void confirmCode("email")}
+                className="border border-foreground px-3 py-2 text-xs disabled:opacity-50"
+              >
+                Verify email
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="space-y-2">
+          <label className="block text-sm">
+            <span className="text-secondary">Mobile number</span>
+            <input
+              required
+              inputMode="tel"
+              value={form.phone}
+              onChange={(event) => {
+                setPhoneVerified(false);
+                setForm((current) => ({ ...current, phone: event.target.value }));
+              }}
+              className="mt-1 w-full border border-border bg-card px-3 py-2.5 outline-none focus:border-foreground"
+            />
+          </label>
+          {phoneOtpEnabled ? (
+            phoneVerified ? (
+              <p className="text-xs text-secondary">Mobile number verified.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={otpBusy !== null}
+                  onClick={() => void sendCode("phone")}
+                  className="border border-foreground px-3 py-2 text-xs disabled:opacity-50"
+                >
+                  {otpBusy === "phone" ? "Sending…" : "Send SMS code"}
+                </button>
+                <input
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="6-digit code"
+                  value={phoneCode}
+                  onChange={(event) => setPhoneCode(event.target.value)}
+                  className="w-32 border border-border bg-card px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  disabled={otpBusy !== null || phoneCode.length < 6}
+                  onClick={() => void confirmCode("phone")}
+                  className="border border-foreground px-3 py-2 text-xs disabled:opacity-50"
+                >
+                  Verify mobile
+                </button>
+              </div>
+            )
+          ) : (
+            <p className="text-xs text-secondary">
+              Used for delivery updates. SMS verification can be enabled with MSG91 or Twilio.
+            </p>
+          )}
+        </div>
         {pricedCart.error && (
           <p className="text-sm text-red-700">{pricedCart.error}. Reduce quantities to continue.</p>
         )}
         {error && <p className="text-sm text-red-700">{error}</p>}
         <button
           type="submit"
-          disabled={loading || !checkoutReady || !pricedCart.ok}
+          disabled={loading || !checkoutReady || !pricedCart.ok || !canPay}
           className="inline-flex w-full items-center justify-center bg-button px-6 py-3.5 text-sm tracking-wide text-white disabled:opacity-50"
         >
           {loading
             ? "Processing…"
             : !checkoutReady
               ? "Loading payment…"
-              : `Pay or place COD ${formatPrice((totals?.totalPaise ?? 0) / 100)}`}
+            : !canPay
+              ? phoneOtpEnabled
+                ? "Verify email and mobile to continue"
+                : "Verify email to continue"
+            : `Pay or place COD ${formatPrice((totals?.totalPaise ?? 0) / 100)}`}
         </button>
         <p className="text-xs leading-5 text-secondary">
           Stock is held for 2 minutes after you start checkout. Closing the window
