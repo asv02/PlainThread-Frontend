@@ -447,7 +447,7 @@ export function CheckoutForm() {
             )
           ) : (
             <p className="text-xs text-secondary">
-              Used for delivery updates. SMS verification can be enabled with MSG91 or Twilio.
+              Used for delivery updates.
             </p>
           )}
         </div>
@@ -471,10 +471,7 @@ export function CheckoutForm() {
             : `Pay ${formatPrice((totals?.totalPaise ?? 0) / 100)}`}
         </button>
         <p className="text-xs leading-5 text-secondary">
-          Stock is held for 2 minutes after you start checkout. Closing the window
-          keeps the hold so a completed UPI/card charge is not refunded. Duplicate
-          clicks use the same checkout and cannot double-charge. Cancel from your
-          order link while the parcel is still pending. Returns are accepted within
+          Stock is held for 2 minutes after you start checkout.Returns are accepted within
           7 days of the delivered date.{" "}
           <a href="/shipping-returns" className="underline underline-offset-2">
             Shipping &amp; returns
