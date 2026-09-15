@@ -217,8 +217,7 @@ export default function HomePage() {
           <FadeIn>
             <h2 className="font-serif text-3xl sm:text-4xl md:text-5xl">Shop Now</h2>
             <p className="mx-auto mt-4 max-w-lg text-sm leading-7 text-white/70 sm:text-base">
-              Choose your colour. Then choose your marketplace. Secure checkout on Amazon or
-              Flipkart.
+              Choose your colour, pick a size, and checkout on this site. Prepaid UPI, cards, and netbanking.
             </p>
             <div className="mx-auto mt-8 flex max-w-md flex-col items-stretch justify-center gap-3 sm:max-w-none sm:flex-row sm:items-center">
               <Button
@@ -243,7 +242,7 @@ export default function HomePage() {
       <section className="container-px py-16 sm:py-24 md:py-32">
         <FadeIn>
           <h2 className="font-serif text-3xl sm:text-4xl md:text-5xl">FAQ</h2>
-          <p className="mt-4 text-secondary">Straight answers before you choose a marketplace.</p>
+          <p className="mt-4 text-secondary">Straight answers before you buy.</p>
         </FadeIn>
         <div className="mt-10">
           <FaqList items={siteFaqs.slice(0, 6)} />

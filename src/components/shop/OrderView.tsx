@@ -1,17 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
 import { MoneyRows } from "@/components/shop/MoneyRows";
 import { taxLinesFromStored } from "@/lib/shop/tax";
 import { siteConfig } from "@/data/site";
 import type { PublicOrder } from "@/lib/shop/types";
 
+function cancelMailto(publicId: string, parcelStatus: string) {
+  const subject = encodeURIComponent(`Cancel or return request ${publicId}`);
+  const body = encodeURIComponent(
+    `Order ${publicId}\nParcel status: ${parcelStatus}\n\nPlease help cancel this order or arrange a return.`,
+  );
+  return `mailto:${siteConfig.email}?subject=${subject}&body=${body}`;
+}
+
 export function OrderView({ publicId }: { publicId: string }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const [order, setOrder] = useState<PublicOrder | null>(null);
+  const [accessToken, setAccessToken] = useState(token);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
 
@@ -19,29 +29,57 @@ export function OrderView({ publicId }: { publicId: string }) {
     const res = await fetch(`/api/orders/${publicId}?token=${encodeURIComponent(token)}`, {
       cache: "no-store",
     });
-    const data = (await res.json()) as { order?: PublicOrder; error?: string };
+    const data = (await res.json()) as {
+      order?: PublicOrder;
+      accessToken?: string;
+      error?: string;
+    };
     if (!res.ok || !data.order) {
       setError(data.error || "Order not found");
       return;
     }
     setOrder(data.order);
+    if (data.accessToken) setAccessToken(data.accessToken);
   }, [publicId, token]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  function emailAndGoToReturns(parcelStatus: string) {
+    window.open(cancelMailto(publicId, parcelStatus));
+    router.push("/shipping-returns");
+  }
+
   async function cancel() {
     if (!order) return;
     setWorking(true);
     setError("");
+    if (order.status === "cancelled") {
+      setError("This order is already cancelled.");
+      setWorking(false);
+      return;
+    }
+    if ((order.parcelStatus ?? "pending") !== "pending") {
+      emailAndGoToReturns(order.parcelStatus);
+      setWorking(false);
+      return;
+    }
     try {
       const res = await fetch(`/api/orders/${publicId}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken: token, reason: "customer_cancelled" }),
+        body: JSON.stringify({ accessToken, reason: "customer_cancelled" }),
       });
-      const data = (await res.json()) as { order?: PublicOrder; error?: string };
+      const data = (await res.json()) as {
+        order?: PublicOrder;
+        error?: string;
+        result?: string;
+      };
+      if (data.result === "not_cancellable") {
+        emailAndGoToReturns(data.order?.parcelStatus ?? order.parcelStatus);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Could not cancel");
       if (data.order) setOrder(data.order);
     } catch (err) {
@@ -51,11 +89,22 @@ export function OrderView({ publicId }: { publicId: string }) {
     }
   }
 
-  if (!token) {
-    return <p className="text-secondary">This order link is missing its access token.</p>;
-  }
   if (!order && !error) return <p className="text-secondary">Loading order…</p>;
-  if (!order) return <p className="text-secondary">{error}</p>;
+  if (!order) {
+    return (
+      <p className="text-secondary">
+        {error}{" "}
+        {!token && (
+          <>
+            <a href="/account" className="underline underline-offset-2">
+              Sign in
+            </a>{" "}
+            with your checkout email to view this order.
+          </>
+        )}
+      </p>
+    );
+  }
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -87,14 +136,18 @@ export function OrderView({ publicId }: { publicId: string }) {
         {order.city}, {order.state} {order.pincode}
       </p>
       {error && <p className="text-sm text-red-700">{error}</p>}
-      {order.canCancel && (
+      {order.status === "open" && (
         <button
           type="button"
           disabled={working}
           onClick={() => void cancel()}
           className="border border-foreground px-5 py-3 text-sm disabled:opacity-50"
         >
-          {working ? "Cancelling…" : "Cancel order and restock"}
+          {working
+            ? "Cancelling…"
+            : (order.parcelStatus ?? "pending") === "pending"
+              ? "Cancel order and restock"
+              : "Email to cancel or return"}
         </button>
       )}
       {order.parcelStatus === "delivered" && (

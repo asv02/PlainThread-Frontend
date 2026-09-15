@@ -46,6 +46,7 @@ export type DbOrder = {
   paid_at: string | null;
   customer_email_sent_at: string | null;
   ops_email_sent_at: string | null;
+  user_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -103,6 +104,7 @@ export type PublicOrder = {
   totalPaise: number;
   currency: string;
   holdExpiresAt: string | null;
+  createdAt: string;
   failureReason: string | null;
   items: Array<{
     name: string;

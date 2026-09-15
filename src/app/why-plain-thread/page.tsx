@@ -43,10 +43,10 @@ export default function WhyPage() {
           is a wardrobe essential that works with black jeans, cargos, shorts, sneakers, and
           quiet layering.
         </p>
-        <h2>Marketplace by choice</h2>
+        <h2>Checkout on this site</h2>
         <p>
-          When you are ready, choose Amazon or Flipkart. Secure checkout on the marketplace
-          you already trust — lower commitment, clearer next step.
+          When you are ready, pick a size and buy here. Prepaid checkout through
+          Razorpay Magic Checkout.
         </p>
       </div>
 

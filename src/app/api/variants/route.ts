@@ -5,14 +5,16 @@ import { errMessage, log } from "@/lib/log";
 
 export async function GET() {
   try {
+    log.info("variants", "start");
     await expireStaleOrders();
+    log.info("variants", "expired stale holds");
     const { data, error } = await supabaseAdmin()
       .from("variants")
       .select("product_slug, size, sku, stock")
       .order("product_slug")
       .order("size");
     if (error) throw new Error(error.message);
-    log.debug("variants", "loaded", { count: (data ?? []).length });
+    log.info("variants", "loaded", { count: (data ?? []).length });
     return NextResponse.json({ variants: data ?? [] });
   } catch (error) {
     log.error("variants", "failed", { error: errMessage(error) });

@@ -37,7 +37,7 @@ export const siteFaqs: FaqItem[] = [
   {
     question: "Where can I buy Plain Thread?",
     answer:
-      "Shop on this website, or choose Amazon or Flipkart from any product page. Website checkout is on Razorpay; marketplace checkout follows that marketplace.",
+      "Shop on this website. Checkout is Razorpay Magic Checkout (prepaid). Amazon and Flipkart listings may still exist; those orders follow that marketplace.",
   },
   {
     question: "Can I return an order after it is delivered?",
@@ -47,7 +47,7 @@ export const siteFaqs: FaqItem[] = [
   {
     question: "How do I cancel before the parcel ships?",
     answer:
-      "Use the cancel button on your order link while the parcel is still pending (prepaid or COD). After it is shipped with Delhivery, wait for delivery and request a return within 7 days of the delivered date.",
+      "Use the cancel button on your order link while the parcel is still pending. After it is shipped with Delhivery, wait for delivery and request a return within 7 days of the delivered date.",
   },
   {
     question: "Are the dyes skin friendly?",

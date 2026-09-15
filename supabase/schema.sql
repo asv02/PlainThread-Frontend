@@ -3,7 +3,7 @@
 -- Or from the repo: set SUPABASE_ACCESS_TOKEN then `npm run db:apply`
 -- Then verify: `npm run db:verify`
 --
--- Tables: variants, orders, order_items, payment_events
+-- Tables: variants, orders, order_items, payment_events, users, customer_sessions
 -- RPCs: checkout_create, attach_razorpay_order, mark_order_paid, confirm_cod_order,
 --       cancel_customer_order, finalize_refund_cancel, expire_stale_orders,
 --       admin_set_parcel, admin_set_payment, ...
@@ -178,6 +178,31 @@ create table if not exists public.checkout_verify_sessions (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  phone text,
+  name text,
+  last_login_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.customer_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  token text not null unique,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists customer_sessions_user_idx
+  on public.customer_sessions (user_id, expires_at desc);
+
+alter table public.orders add column if not exists user_id uuid references public.users(id);
+create index if not exists orders_user_id_idx on public.orders (user_id);
+create index if not exists orders_email_idx on public.orders (email);
+
 alter table public.variants add column if not exists created_at timestamptz not null default now();
 alter table public.order_items add column if not exists created_at timestamptz not null default now();
 alter table public.orders add column if not exists created_at timestamptz not null default now();
@@ -189,6 +214,8 @@ alter table public.order_items enable row level security;
 alter table public.payment_events enable row level security;
 alter table public.checkout_otps enable row level security;
 alter table public.checkout_verify_sessions enable row level security;
+alter table public.users enable row level security;
+alter table public.customer_sessions enable row level security;
 
 -- Anon has no policies: all commerce goes through the Next.js service role.
 
@@ -206,6 +233,65 @@ drop trigger if exists orders_touch_updated_at on public.orders;
 create trigger orders_touch_updated_at
   before update on public.orders
   for each row execute function public.touch_updated_at();
+
+drop trigger if exists users_touch_updated_at on public.users;
+create trigger users_touch_updated_at
+  before update on public.users
+  for each row execute function public.touch_updated_at();
+
+create or replace function public.upsert_customer(
+  p_email text,
+  p_phone text default null,
+  p_name text default null
+) returns uuid
+language plpgsql
+as $$
+declare
+  v_email text;
+  v_id uuid;
+begin
+  v_email := lower(trim(coalesce(p_email, '')));
+  if v_email = '' or position('@' in v_email) = 0 then
+    raise exception 'INVALID_EMAIL';
+  end if;
+
+  insert into public.users (email, phone, name)
+  values (
+    v_email,
+    nullif(trim(coalesce(p_phone, '')), ''),
+    nullif(trim(coalesce(p_name, '')), '')
+  )
+  on conflict (email) do update
+  set
+    phone = coalesce(excluded.phone, public.users.phone),
+    name = coalesce(excluded.name, public.users.name),
+    updated_at = now()
+  returning id into v_id;
+
+  update public.orders
+  set user_id = v_id
+  where user_id is null
+    and lower(email) = v_email;
+
+  return v_id;
+end;
+$$;
+
+insert into public.users (email, phone, name)
+select distinct on (lower(o.email))
+  lower(o.email),
+  o.phone,
+  o.customer_name
+from public.orders o
+where o.email is not null and length(trim(o.email)) > 3
+order by lower(o.email), o.created_at desc
+on conflict (email) do nothing;
+
+update public.orders o
+set user_id = u.id
+from public.users u
+where o.user_id is null
+  and lower(o.email) = u.email;
 
 create or replace function public.restock_order_items(p_order_id uuid)
 returns void
@@ -329,6 +415,7 @@ as $$
 declare
   existing_id uuid;
   new_id uuid;
+  v_user_id uuid;
   item jsonb;
   v_id uuid;
   v_sku text;
@@ -344,6 +431,12 @@ begin
   if jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) < 1 then
     raise exception 'EMPTY_CART';
   end if;
+
+  v_user_id := public.upsert_customer(
+    p_customer->>'email',
+    p_customer->>'phone',
+    p_customer->>'name'
+  );
 
   select o.id into existing_id
   from public.orders o
@@ -361,7 +454,8 @@ begin
       address_line2 = nullif(p_customer->>'address_line2', ''),
       city = coalesce(p_customer->>'city', city),
       state = coalesce(p_customer->>'state', state),
-      pincode = coalesce(p_customer->>'pincode', pincode)
+      pincode = coalesce(p_customer->>'pincode', pincode),
+      user_id = coalesce(user_id, v_user_id)
     where id = existing_id
       and status = 'open'
       and payment_method is null;
@@ -422,7 +516,8 @@ begin
     igst_paise,
     shipping_paise,
     total_paise,
-    hold_expires_at
+    hold_expires_at,
+    user_id
   ) values (
     'PT-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8)),
     encode(gen_random_bytes(24), 'hex'),
@@ -444,7 +539,8 @@ begin
     coalesce(p_igst_paise, 0),
     p_shipping_paise,
     p_total_paise,
-    now() + make_interval(mins => greatest(2, least(coalesce(p_hold_minutes, 2), 60)))
+    now() + make_interval(mins => greatest(2, least(coalesce(p_hold_minutes, 2), 60))),
+    v_user_id
   )
   returning id into new_id;
 
@@ -486,7 +582,8 @@ exception
       address_line2 = nullif(p_customer->>'address_line2', ''),
       city = coalesce(p_customer->>'city', city),
       state = coalesce(p_customer->>'state', state),
-      pincode = coalesce(p_customer->>'pincode', pincode)
+      pincode = coalesce(p_customer->>'pincode', pincode),
+      user_id = coalesce(user_id, v_user_id)
     where id = existing_id
       and status = 'open'
       and payment_method is null;
@@ -562,6 +659,14 @@ begin
   end if;
 
   if s = 'cancelled' then
+    if pay_status <> 'refunded' then
+      update public.orders
+      set
+        razorpay_payment_id = coalesce(razorpay_payment_id, p_payment_id),
+        payment_status = 'refund_pending',
+        failure_reason = coalesce(failure_reason, 'late_payment')
+      where id = p_order_id;
+    end if;
     return jsonb_build_object('result', 'late_payment', 'payload', public.order_payload(p_order_id));
   end if;
 
@@ -700,6 +805,12 @@ begin
   for update;
 
   if s = 'cancelled' then
+    if pay_status = 'refund_pending' then
+      update public.orders
+      set payment_status = 'refunded', failure_reason = null
+      where id = p_order_id;
+      return jsonb_build_object('result', 'refunded', 'payload', public.order_payload(p_order_id));
+    end if;
     return jsonb_build_object('result', 'already_cancelled', 'payload', public.order_payload(p_order_id));
   end if;
 
@@ -835,22 +946,23 @@ end;
 $$;
 
 insert into public.variants (product_slug, size, sku, stock) values
-  ('black-oversized-tshirt', 'S', 'PT-OV-BLK-S', 20),
-  ('black-oversized-tshirt', 'M', 'PT-OV-BLK-M', 20),
-  ('black-oversized-tshirt', 'L', 'PT-OV-BLK-L', 20),
-  ('black-oversized-tshirt', 'XL', 'PT-OV-BLK-XL', 20),
-  ('black-oversized-tshirt', 'XXL', 'PT-OV-BLK-XXL', 20),
-  ('white-oversized-tshirt', 'S', 'PT-OV-WHT-S', 20),
-  ('white-oversized-tshirt', 'M', 'PT-OV-WHT-M', 20),
-  ('white-oversized-tshirt', 'L', 'PT-OV-WHT-L', 20),
-  ('white-oversized-tshirt', 'XL', 'PT-OV-WHT-XL', 20),
-  ('white-oversized-tshirt', 'XXL', 'PT-OV-WHT-XXL', 20),
-  ('pink-oversized-tshirt', 'S', 'PT-OV-PNK-S', 20),
-  ('pink-oversized-tshirt', 'M', 'PT-OV-PNK-M', 20),
-  ('pink-oversized-tshirt', 'L', 'PT-OV-PNK-L', 20),
-  ('pink-oversized-tshirt', 'XL', 'PT-OV-PNK-XL', 20),
-  ('pink-oversized-tshirt', 'XXL', 'PT-OV-PNK-XXL', 20)
-on conflict (product_slug, size) do nothing;
+  ('black-oversized-tshirt', 'S', 'PT-OTS-001-JB-S', 20),
+  ('black-oversized-tshirt', 'M', 'PT-OTS-001-JB-M', 20),
+  ('black-oversized-tshirt', 'L', 'PT-OTS-001-JB-L', 20),
+  ('black-oversized-tshirt', 'XL', 'PT-OTS-001-JB-XL', 20),
+  ('black-oversized-tshirt', 'XXL', 'PT-OTS-001-JB-XXL', 20),
+  ('white-oversized-tshirt', 'S', 'PT-OTS-001-SW-S', 20),
+  ('white-oversized-tshirt', 'M', 'PT-OTS-001-SW-M', 20),
+  ('white-oversized-tshirt', 'L', 'PT-OTS-001-SW-L', 20),
+  ('white-oversized-tshirt', 'XL', 'PT-OTS-001-SW-XL', 20),
+  ('white-oversized-tshirt', 'XXL', 'PT-OTS-001-SW-XXL', 20),
+  ('pink-oversized-tshirt', 'S', 'PT-OTS-001-RP-S', 20),
+  ('pink-oversized-tshirt', 'M', 'PT-OTS-001-RP-M', 20),
+  ('pink-oversized-tshirt', 'L', 'PT-OTS-001-RP-L', 20),
+  ('pink-oversized-tshirt', 'XL', 'PT-OTS-001-RP-XL', 20),
+  ('pink-oversized-tshirt', 'XXL', 'PT-OTS-001-RP-XXL', 20)
+on conflict (product_slug, size) do update
+  set sku = excluded.sku;
 
 revoke all on public.variants from anon, authenticated;
 revoke all on public.orders from anon, authenticated;
@@ -858,6 +970,8 @@ revoke all on public.order_items from anon, authenticated;
 revoke all on public.payment_events from anon, authenticated;
 revoke all on public.checkout_otps from anon, authenticated;
 revoke all on public.checkout_verify_sessions from anon, authenticated;
+revoke all on public.users from anon, authenticated;
+revoke all on public.customer_sessions from anon, authenticated;
 
 revoke all on function public.checkout_create(text, jsonb, jsonb, integer, integer, integer, integer, integer, integer, text, integer, integer, integer) from public, anon, authenticated;
 revoke all on function public.attach_razorpay_order(uuid, text) from public, anon, authenticated;
@@ -873,6 +987,7 @@ revoke all on function public.admin_set_payment(uuid, text) from public, anon, a
 revoke all on function public.order_payload(uuid) from public, anon, authenticated;
 revoke all on function public.restock_order_items(uuid) from public, anon, authenticated;
 revoke all on function public.restock_and_cancel(uuid, text) from public, anon, authenticated;
+revoke all on function public.upsert_customer(text, text, text) from public, anon, authenticated;
 
 grant execute on function public.checkout_create(text, jsonb, jsonb, integer, integer, integer, integer, integer, integer, text, integer, integer, integer) to service_role;
 grant execute on function public.attach_razorpay_order(uuid, text) to service_role;
@@ -886,3 +1001,4 @@ grant execute on function public.admin_set_status(uuid, text) to service_role;
 grant execute on function public.admin_set_parcel(uuid, text) to service_role;
 grant execute on function public.admin_set_payment(uuid, text) to service_role;
 grant execute on function public.order_payload(uuid) to service_role;
+grant execute on function public.upsert_customer(text, text, text) to service_role;

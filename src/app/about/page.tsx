@@ -34,7 +34,7 @@ export default function AboutPage() {
         <p>
           Attention, trust, desire, choice, action — that is how people buy. So this site
           does not shout “Buy Now.” It shows the product clearly, explains the fabric
-          honestly, and lets you choose Amazon or Flipkart when you are ready.
+          honestly, then lets you size, add to cart, and checkout here when you are ready.
         </p>
         <h2>What we make</h2>
         <p>

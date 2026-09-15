@@ -20,8 +20,7 @@ export default function PrivacyPage() {
         <p>
           {siteConfig.name} sells oversized essentials on this website. When you check out
           here we collect your name, email, phone, and delivery address to fulfil the order.
-          Payments are processed by Razorpay. We also still link to Amazon and Flipkart;
-          those checkouts are governed by their policies.
+          Payments are processed by Razorpay.
         </p>
         <h2>Information we may collect</h2>
         <p>
@@ -30,10 +29,10 @@ export default function PrivacyPage() {
           information may be processed to measure traffic, ad performance, and respond to
           enquiries.
         </p>
-        <h2>Third-party marketplaces</h2>
+        <h2>Payment processor</h2>
         <p>
-          When you continue to Amazon or Flipkart, their privacy policies and checkout
-          processes apply. We encourage you to review those policies before purchasing.
+          Razorpay processes prepaid and cash-on-delivery checkouts. Their privacy policy
+          applies to payment data they collect.
         </p>
         <h2>Contact</h2>
         <p>

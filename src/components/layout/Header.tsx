@@ -93,6 +93,12 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-1">
+            <Link
+              href="/account"
+              className="hidden px-2 text-sm tracking-wide text-secondary transition hover:text-foreground md:inline"
+            >
+              Orders
+            </Link>
             <CartNav />
           <button
             type="button"
@@ -134,6 +140,12 @@ export function Header() {
                 </Link>
               ))}
 
+              <Link
+                href="/account"
+                className="border-b border-border py-4 text-lg text-foreground"
+              >
+                Orders
+              </Link>
               <Link
                 href="/cart"
                 className="border-b border-border py-4 text-lg text-foreground"

@@ -7,7 +7,7 @@ import { buildMetadata } from "@/lib/seo";
 export const metadata = buildMetadata({
   title: "Products | Premium Oversized T-Shirts",
   description:
-    "Shop Plain Thread premium oversized t-shirts in Black, White, and Pink. 220 GSM combed cotton. Available on Amazon and Flipkart.",
+    "Shop Plain Thread premium oversized t-shirts in Black, White, and Pink. 220 GSM combed cotton. Checkout on plainthread.in.",
   path: "/products",
 });
 
@@ -18,8 +18,7 @@ export default function ProductsPage() {
       <FadeIn>
         <h1 className="font-serif text-4xl md:text-5xl">Premium Oversized T-Shirts</h1>
         <p className="mt-4 max-w-2xl text-secondary">
-          Every colour gets its own page — keyword-rich URLs Google can index, with
-          marketplace choice built in.
+          Every colour has its own page — pick a size and buy here.
         </p>
       </FadeIn>
       <div className="mt-14 grid gap-10 md:grid-cols-3">

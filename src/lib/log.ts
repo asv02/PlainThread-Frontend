@@ -39,6 +39,28 @@ export const log = {
   },
 };
 
+/** Numbered step logger for an API/payment request. Never put secrets in `extra`. */
+export function startFlow(scope: string, extra?: Record<string, unknown>) {
+  const started = Date.now();
+  let step = 0;
+  emit("info", scope, "start", extra);
+  return {
+    step(message: string, data?: Record<string, unknown>) {
+      step += 1;
+      emit("info", scope, message, { step, ...data });
+    },
+    debug(message: string, data?: Record<string, unknown>) {
+      emit("debug", scope, message, { step, ...data });
+    },
+    done(message: string, data?: Record<string, unknown>) {
+      emit("info", scope, message, { steps: step, ms: Date.now() - started, ...data });
+    },
+    fail(message: string, data?: Record<string, unknown>) {
+      emit("error", scope, message, { steps: step, ms: Date.now() - started, ...data });
+    },
+  };
+}
+
 export function errMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }

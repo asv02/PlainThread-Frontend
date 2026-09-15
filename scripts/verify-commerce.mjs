@@ -47,7 +47,7 @@ async function stock() {
   const { data } = await db
     .from("variants")
     .select("stock")
-    .eq("sku", "PT-OV-BLK-M")
+    .eq("sku", "PT-OTS-001-JB-M")
     .single();
   return data?.stock ?? -1;
 }

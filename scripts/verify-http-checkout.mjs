@@ -19,7 +19,7 @@ async function json(url, options) {
 async function stock() {
   const res = await fetch("http://localhost:3000/api/variants");
   const data = await res.json();
-  return data.variants.find((v) => v.sku === "PT-OV-WHT-L").stock;
+  return data.variants.find((v) => v.sku === "PT-OTS-001-SW-L").stock;
 }
 
 const start = await stock();

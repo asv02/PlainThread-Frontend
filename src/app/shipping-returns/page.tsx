@@ -59,18 +59,22 @@ export default function ShippingReturnsPage() {
         <h2>Refunds</h2>
         <p>
           After the return is picked up and inspected, prepaid orders are refunded
-          to the original Razorpay method (admin marks the payment refunded). COD
-          orders were never collected online, so there is no Razorpay refund — stock
-          is returned when the parcel is marked returned. Pickup is not a refund by
-          itself.
+          to the original Razorpay method (admin marks the payment refunded). Pickup
+          is not a refund by itself.
         </p>
 
         <h2>Cancellations before dispatch</h2>
         <p>
-          You can cancel from your order link while the parcel is still pending,
-          including COD. Closing Magic Checkout does not cancel a completed prepaid
-          charge or a placed COD order. Once it is shipped with Delhivery, use this
-          return policy after delivery instead.
+          You can cancel from your order link while the parcel is still pending.
+          Closing Magic Checkout does not cancel a completed prepaid charge.
+        </p>
+        <p>
+          Once it is shipped or delivered, do not cancel from the order page.
+          Email{" "}
+          <a href={`mailto:${siteConfig.email}?subject=Cancel%20or%20return%20request`}>
+            {siteConfig.email}
+          </a>{" "}
+          with your order ID. After delivery, use the return policy on this page.
         </p>
 
         <p>

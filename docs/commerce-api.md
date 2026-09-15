@@ -91,7 +91,7 @@ The cart is **not** an order. Nothing is reserved until Pay hits checkout.
 
 - New UUID when the **cart `items` array** changes (size/qty/product).
 - **Same** UUID if the customer closes Razorpay and clicks Pay again (so they reuse the hold and the same Razorpay order).
-- Closing Razorpay does **not** cancel the order. The hold lasts `STOCK_HOLD_MINUTES` (default 15).
+- Closing Razorpay does **not** cancel the order. The hold lasts `STOCK_HOLD_MINUTES` (default 5).
 
 After checkout succeeds, the form opens Razorpay with `order_id` from the API. Razorpay `handler` then POSTs payment ids + signature to verify. On success the cart is cleared and the router goes to `/orders/{publicId}?token={accessToken}`.
 

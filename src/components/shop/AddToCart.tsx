@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { SHOP_SIZES } from "@/data/shop";
+import { MAX_LINE_QTY, SHOP_SIZES } from "@/data/shop";
 import { useShop } from "@/components/shop/ShopProvider";
+import { QtyStepper } from "@/components/shop/QtyStepper";
 import { cn } from "@/lib/utils";
 
 export function AddToCart({
@@ -17,16 +18,30 @@ export function AddToCart({
   const router = useRouter();
   const { addItem, stockFor } = useShop();
   const [size, setSize] = useState<(typeof SHOP_SIZES)[number]>("M");
+  const [qty, setQty] = useState(1);
   const [message, setMessage] = useState("");
   const stock = stockFor(productSlug, size);
   const soldOut = stock === 0;
+  const maxQty = useMemo(() => {
+    if (stock == null) return 1;
+    return Math.max(1, Math.min(MAX_LINE_QTY, stock));
+  }, [stock]);
+
+  function selectSize(option: (typeof SHOP_SIZES)[number]) {
+    setSize(option);
+    setMessage("");
+    const optionStock = stockFor(productSlug, option);
+    if (optionStock != null) {
+      setQty((current) => Math.min(current, Math.max(1, Math.min(MAX_LINE_QTY, optionStock))));
+    }
+  }
 
   return (
     <div className="space-y-4">
       <div>
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium">Size</p>
-          <Link href="/size-guide" className="text-xs underline underline-offset-4 text-secondary">
+          <Link href="/size-guide" className="text-xs text-secondary underline underline-offset-4">
             Size guide
           </Link>
         </div>
@@ -39,10 +54,7 @@ export function AddToCart({
                 key={option}
                 type="button"
                 disabled={unavailable}
-                onClick={() => {
-                  setSize(option);
-                  setMessage("");
-                }}
+                onClick={() => selectSize(option)}
                 className={cn(
                   "min-w-12 border px-3 py-2 text-sm",
                   size === option
@@ -65,28 +77,36 @@ export function AddToCart({
         </p>
       </div>
 
+      <QtyStepper
+        value={qty}
+        min={1}
+        max={maxQty}
+        disabled={soldOut || stock == null}
+        onChange={setQty}
+      />
+
       <div className="flex flex-col gap-3 sm:flex-row">
         <button
           type="button"
           disabled={soldOut || stock == null}
           onClick={() => {
-            addItem(productSlug, size, 1);
-            setMessage(`${productName} · ${size} added to cart`);
+            addItem(productSlug, size, qty);
+            router.push("/checkout");
           }}
           className="inline-flex flex-1 items-center justify-center bg-button px-6 py-3.5 text-sm tracking-wide text-white disabled:opacity-40"
         >
-          Add to cart
+          Buy now
         </button>
         <button
           type="button"
           disabled={soldOut || stock == null}
           onClick={() => {
-            addItem(productSlug, size, 1);
-            router.push("/checkout");
+            addItem(productSlug, size, qty);
+            setMessage(`${productName} · ${size} × ${qty} added to cart`);
           }}
           className="inline-flex flex-1 items-center justify-center border border-foreground px-6 py-3.5 text-sm tracking-wide disabled:opacity-40"
         >
-          Buy now
+          Add to cart
         </button>
       </div>
       {message && <p className="text-sm text-secondary">{message}</p>}

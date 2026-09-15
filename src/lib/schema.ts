@@ -64,17 +64,17 @@ export function productSchema(product: Product) {
       bestRating: 5,
       worstRating: 1,
     },
-    offers: product.marketplaces.map((m) => ({
+    offers: {
       "@type": "Offer",
-      url: m.url,
+      url: absoluteUrl(`/products/${product.slug}`),
       priceCurrency: siteConfig.currency,
       price: product.price,
       availability: "https://schema.org/InStock",
       seller: {
         "@type": "Organization",
-        name: m.name,
+        name: siteConfig.name,
       },
-    })),
+    },
   };
 }
 

@@ -62,6 +62,10 @@ export async function checkoutCreate(input: {
   });
   if (error) {
     const message = error.message || "Checkout failed";
+    log.error("orders", "checkout_create failed", {
+      error: message,
+      totalPaise: input.totalPaise,
+    });
     if (message.includes("OUT_OF_STOCK")) {
       const err = new Error("That size just sold out. Remove it or pick another size.");
       (err as Error & { code?: string }).code = "OUT_OF_STOCK";
@@ -70,9 +74,12 @@ export async function checkoutCreate(input: {
     throw new Error(message.replace(/^.*exception: /i, ""));
   }
   const payload = asPayload(data);
-  log.debug("orders", "checkout_create", {
+  log.info("orders", "checkout_create", {
     publicId: payload.order.public_id,
     status: payload.order.status,
+    paymentStatus: payload.order.payment_status,
+    totalPaise: payload.order.total_paise,
+    items: payload.items?.length,
   });
   return payload;
 }
@@ -83,9 +90,11 @@ export async function attachRazorpayOrder(orderId: string, razorpayOrderId: stri
     p_razorpay_order_id: razorpayOrderId,
   });
   if (error) throw new Error(error.message);
+  log.info("orders", "attach_razorpay_order", { orderId, razorpayOrderId });
 }
 
 export async function markPaymentFailed(orderId: string, reason: string) {
+  log.info("orders", "mark_payment_failed", { orderId, reason: reason.slice(0, 120) });
   await supabaseAdmin().rpc("mark_payment_failed", {
     p_order_id: orderId,
     p_reason: reason.slice(0, 300),
@@ -127,6 +136,11 @@ export async function cancelCustomerOrder(orderId: string, reason: string) {
     p_reason: reason,
   });
   if (error) throw new Error(error.message);
+  log.info("orders", "cancel_customer_order", {
+    orderId,
+    reason,
+    result: (data as { result?: string } | null)?.result,
+  });
   return data as {
     result: string;
     razorpay_payment_id?: string | null;
@@ -140,6 +154,10 @@ export async function finalizeRefundCancel(orderId: string) {
     p_order_id: orderId,
   });
   if (error) throw new Error(error.message);
+  log.info("orders", "finalize_refund_cancel", {
+    orderId,
+    result: (data as { result?: string } | null)?.result,
+  });
   return data as { result: string; payload?: OrderPayload };
 }
 
@@ -175,6 +193,19 @@ export async function getOrderPayloadById(orderId: string) {
   return { order, items: items ?? [] } as OrderPayload;
 }
 
+export async function listOrdersNeedingRefund(limit = 20) {
+  const db = supabaseAdmin();
+  const { data: orders, error } = await db
+    .from("orders")
+    .select("*")
+    .eq("payment_status", "refund_pending")
+    .not("razorpay_payment_id", "is", null)
+    .order("updated_at", { ascending: true })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return (orders ?? []) as OrderPayload["order"][];
+}
+
 export async function listOrdersNeedingPaidEmail(limit = 20) {
   const db = supabaseAdmin();
   const { data: orders, error } = await db
@@ -197,6 +228,19 @@ export async function markOrderEmailSent(orderId: string, kind: "customer" | "op
     .eq("id", orderId)
     .is(column, null);
   if (error) throw new Error(error.message);
+}
+
+export async function getOrderByRazorpayPaymentId(paymentId: string) {
+  const db = supabaseAdmin();
+  const { data: order, error } = await db
+    .from("orders")
+    .select("*")
+    .eq("razorpay_payment_id", paymentId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!order) return null;
+  const { data: items } = await db.from("order_items").select("*").eq("order_id", order.id);
+  return { order, items: items ?? [] } as OrderPayload;
 }
 
 export async function getOrderByRazorpayOrderId(razorpayOrderId: string) {
@@ -225,7 +269,18 @@ export async function recordPaymentEvent(input: {
     provider_event_id: input.providerEventId,
     payload: input.payload,
   });
-  if (error?.code === "23505") return { duplicate: true };
+  if (error?.code === "23505") {
+    log.info("orders", "payment_event duplicate", {
+      eventType: input.eventType,
+      providerEventId: input.providerEventId,
+    });
+    return { duplicate: true };
+  }
   if (error) throw new Error(error.message);
+  log.info("orders", "payment_event stored", {
+    eventType: input.eventType,
+    providerEventId: input.providerEventId,
+    orderId: input.orderId ?? null,
+  });
   return { duplicate: false };
 }

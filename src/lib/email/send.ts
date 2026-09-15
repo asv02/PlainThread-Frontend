@@ -119,6 +119,7 @@ function fromAddress() {
 export async function sendOtpEmail(email: string, code: string) {
   const resend = resendClient();
   if (!resend) throw new Error("Email is not configured yet.");
+  log.info("email", "otp send start");
   const { error } = await resend.emails.send({
     from: fromAddress(),
     to: email,
@@ -157,6 +158,12 @@ export async function sendPaidOrderEmails(payload: OrderPayload) {
   const htmlCustomer = invoiceHtml(payload, "customer");
   const htmlOps = invoiceHtml(payload, "ops");
 
+  log.info("email", "paid emails start", {
+    publicId: payload.order.public_id,
+    isCod,
+    customerDone,
+    opsDone,
+  });
   const jobs: Array<Promise<{ kind: "customer" | "ops"; ok: boolean }>> = [];
   if (!customerDone) {
     jobs.push(

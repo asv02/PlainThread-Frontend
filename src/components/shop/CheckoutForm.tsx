@@ -234,6 +234,11 @@ export function CheckoutForm() {
         order_id: razorpayOrderId,
         one_click_checkout: true,
         show_coupons: false,
+        config: {
+          display: {
+            hide: [{ method: "cod" }],
+          },
+        },
         prefill: {
           name: form.name,
           email: form.email,
@@ -249,7 +254,7 @@ export function CheckoutForm() {
                 return;
               }
               setError(
-                "Payment window closed. If you did not finish paying or placing COD, this order is held for 2 minutes — click Pay again. If you already paid or chose COD, keep this page or check email.",
+                "Payment window closed. If you did not finish paying, this order is held for 2 minutes — click Pay again. If you already paid, keep this page or check email.",
               );
               setLoading(false);
               busy.current = false;
@@ -290,27 +295,7 @@ export function CheckoutForm() {
             return;
           }
 
-          const verify = await fetch("/api/verify-payment", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              publicId,
-              accessToken,
-              razorpay_payment_id: response.razorpay_payment_id,
-              cod: true,
-            }),
-          });
-          const verified = (await verify.json()) as CheckoutResponse;
-          if (verified.order && verified.accessToken) {
-            goToOrder(verified.order, verified.accessToken);
-            return;
-          }
-          const polled = await pollOrder(publicId, accessToken);
-          if (polled?.order && polled.accessToken) {
-            goToOrder(polled.order, polled.accessToken);
-            return;
-          }
-          setError("COD is confirming. Keep this page open or check your email in a minute.");
+          setError("Payment is still confirming. Keep this page open or check your email.");
           setLoading(false);
           busy.current = false;
         },
@@ -483,15 +468,14 @@ export function CheckoutForm() {
               ? phoneOtpEnabled
                 ? "Verify email and mobile to continue"
                 : "Verify email to continue"
-            : `Pay or place COD ${formatPrice((totals?.totalPaise ?? 0) / 100)}`}
+            : `Pay ${formatPrice((totals?.totalPaise ?? 0) / 100)}`}
         </button>
         <p className="text-xs leading-5 text-secondary">
           Stock is held for 2 minutes after you start checkout. Closing the window
-          keeps the hold so a completed UPI/card charge is not refunded. Cash on
-          delivery is available in Razorpay Magic Checkout. Duplicate clicks use
-          the same checkout and cannot double-charge. Cancel from your order link
-          while the parcel is still pending. Returns are accepted within 7 days of
-          the delivered date.{" "}
+          keeps the hold so a completed UPI/card charge is not refunded. Duplicate
+          clicks use the same checkout and cannot double-charge. Cancel from your
+          order link while the parcel is still pending. Returns are accepted within
+          7 days of the delivered date.{" "}
           <a href="/shipping-returns" className="underline underline-offset-2">
             Shipping &amp; returns
           </a>

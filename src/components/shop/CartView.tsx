@@ -6,6 +6,8 @@ import { useShop } from "@/components/shop/ShopProvider";
 import { formatPrice } from "@/lib/utils";
 import { tryPriceCart } from "@/lib/shop/pricing";
 import { MoneyRows } from "@/components/shop/MoneyRows";
+import { QtyStepper } from "@/components/shop/QtyStepper";
+import { MAX_LINE_QTY } from "@/data/shop";
 
 export function CartView() {
   const { items, setQty, removeItem } = useShop();
@@ -46,19 +48,12 @@ export function CartView() {
               <p className="mt-1 text-sm text-secondary">Size {item.size}</p>
               <p className="mt-1 text-sm">{formatPrice(item.price)}</p>
               <div className="mt-3 flex items-center gap-3">
-                <label className="text-sm text-secondary">
-                  Qty
-                  <input
-                    type="number"
-                    min={1}
-                    max={5}
-                    value={item.qty}
-                    onChange={(event) =>
-                      setQty(item.productSlug, item.size, Number(event.target.value))
-                    }
-                    className="ml-2 w-16 border border-border px-2 py-1"
-                  />
-                </label>
+                <QtyStepper
+                  value={item.qty}
+                  min={1}
+                  max={MAX_LINE_QTY}
+                  onChange={(qty) => setQty(item.productSlug, item.size, qty)}
+                />
                 <button
                   type="button"
                   className="text-sm underline underline-offset-4"

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { codFeePaise, shippingPaise } from "@/lib/shop/config";
+import { codEnabled, shippingPaise } from "@/lib/shop/config";
 import { log } from "@/lib/log";
 
 type Address = { id?: string; zipcode?: string; country?: string };
@@ -28,7 +28,7 @@ async function readBody(request: Request) {
 
 function shippingResponse(addresses: Address[]) {
   const shippingFee = shippingPaise();
-  const codFee = codFeePaise();
+  const allowCod = codEnabled();
   const rows = (addresses.length ? addresses : [{ id: "0", zipcode: "", country: "IN" }]).map(
     (address) => {
       const zip = (address.zipcode ?? "").replace(/\D/g, "");
@@ -43,8 +43,8 @@ function shippingResponse(addresses: Address[]) {
             name: "Standard",
             serviceable,
             shipping_fee: shippingFee,
-            cod: serviceable,
-            cod_fee: serviceable ? codFee : 0,
+            cod: allowCod && serviceable,
+            cod_fee: 0,
           },
         ],
       };
@@ -55,18 +55,22 @@ function shippingResponse(addresses: Address[]) {
 
 export async function GET(request: Request) {
   const body = await readBody(request);
-  log.debug("magic-shipping", "get", {
-    orderId: body.order_id,
+  log.info("magic-shipping", "get", {
+    orderId: body.order_id || body.razorpay_order_id,
     addresses: body.addresses.length,
+    zips: body.addresses.map((row) => row.zipcode).filter(Boolean),
+    codEnabled: codEnabled(),
   });
   return NextResponse.json(shippingResponse(body.addresses));
 }
 
 export async function POST(request: Request) {
   const body = await readBody(request);
-  log.debug("magic-shipping", "post", {
-    orderId: body.order_id,
+  log.info("magic-shipping", "post", {
+    orderId: body.order_id || body.razorpay_order_id,
     addresses: body.addresses.length,
+    zips: body.addresses.map((row) => row.zipcode).filter(Boolean),
+    codEnabled: codEnabled(),
   });
   return NextResponse.json(shippingResponse(body.addresses));
 }

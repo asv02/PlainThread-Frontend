@@ -23,6 +23,7 @@ export async function sendOtpSms(phone: string, code: string) {
       log.error("sms", "msg91 failed", { status: res.status });
       throw new Error("Could not send SMS");
     }
+    log.info("sms", "msg91 sent");
     return;
   }
 
@@ -48,4 +49,5 @@ export async function sendOtpSms(phone: string, code: string) {
     log.error("sms", "twilio failed", { status: res.status });
     throw new Error("Could not send SMS");
   }
+  log.info("sms", "twilio sent");
 }

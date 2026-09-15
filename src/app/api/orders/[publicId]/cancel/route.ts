@@ -6,43 +6,104 @@ import {
   finalizeRefundCancel,
   getOrderByPublicId,
 } from "@/lib/shop/orders";
+import { customerOwnsOrder, getCustomerFromCookie } from "@/lib/shop/customers";
 import { timingSafeEqual, toPublicOrder } from "@/lib/shop/serialize";
-import { errMessage, log } from "@/lib/log";
+import { errMessage, startFlow } from "@/lib/log";
+import { siteConfig } from "@/data/site";
 
 export async function POST(
   request: Request,
   context: { params: Promise<{ publicId: string }> },
 ) {
+  const { publicId } = await context.params;
+  const flow = startFlow("cancel-order", { path: "/api/orders/[publicId]/cancel", publicId });
   try {
-    const { publicId } = await context.params;
     const body = (await request.json()) as {
       accessToken?: string;
       reason?: string;
     };
     const payload = await getOrderByPublicId(publicId);
-    if (!payload || !timingSafeEqual(payload.order.access_token, body.accessToken ?? "")) {
-      log.info("cancel-order", "not found or token mismatch", { publicId });
+    const user = await getCustomerFromCookie();
+    const tokenOk = Boolean(
+      payload && body.accessToken && timingSafeEqual(payload.order.access_token, body.accessToken),
+    );
+    const sessionOk = Boolean(payload && user && customerOwnsOrder(user, payload.order));
+    if (!payload || (!tokenOk && !sessionOk)) {
+      flow.fail("not found or unauthorized", { publicId });
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
+    flow.step("order loaded", {
+      publicId,
+      status: payload.order.status,
+      paymentStatus: payload.order.payment_status,
+      paymentMethod: payload.order.payment_method,
+      totalPaise: payload.order.total_paise,
+    });
 
     const result = await cancelCustomerOrder(
       payload.order.id,
       body.reason || "customer_cancelled",
     );
-    log.info("cancel-order", "rpc result", {
+    flow.step("cancel rpc result", {
       publicId,
       result: result.result,
       reason: body.reason || "customer_cancelled",
     });
 
+    if (result.result === "already_cancelled") {
+      flow.fail("already cancelled", { publicId });
+      return NextResponse.json(
+        {
+          error: "This order is already cancelled.",
+          result: result.result,
+          order: result.payload ? toPublicOrder(result.payload) : undefined,
+        },
+        { status: 409 },
+      );
+    }
+
+    if (result.result === "not_cancellable") {
+      flow.fail("not pending; cancel rejected", {
+        publicId,
+        parcel: payload.order.parcel_status,
+      });
+      return NextResponse.json(
+        {
+          error: `This order can no longer be cancelled here. Email ${siteConfig.email} with the order ID, then follow Shipping & Returns.`,
+          result: result.result,
+          redirect: "/shipping-returns",
+          order: result.payload ? toPublicOrder(result.payload) : undefined,
+        },
+        { status: 409 },
+      );
+    }
+
     if (result.result === "needs_refund") {
       const paymentId = result.razorpay_payment_id;
       if (paymentId && razorpayConfigured() && !paymentId.startsWith("sim_")) {
-        await refundRazorpayPayment(paymentId, payload.order.total_paise);
-        log.info("cancel-order", "razorpay refund sent", { publicId });
+        try {
+          flow.step("normal-speed Razorpay refund", {
+            publicId,
+            paymentId,
+            amountPaise: payload.order.total_paise,
+          });
+          await refundRazorpayPayment(paymentId, payload.order.total_paise, "normal");
+        } catch (error) {
+          flow.step("Razorpay refund not completed; leave pending for dashboard or retry", {
+            publicId,
+            error: errMessage(error),
+          });
+          return NextResponse.json({
+            result: "needs_refund",
+            order: result.payload ? toPublicOrder(result.payload) : undefined,
+            accessToken: result.payload?.order.access_token,
+            error:
+              "Order is cancelled. Refund is pending — it will retry at normal speed, or refund this payment from the Razorpay dashboard.",
+          });
+        }
       }
       const refunded = await finalizeRefundCancel(payload.order.id);
-      log.info("cancel-order", "finalized", { publicId, result: refunded.result });
+      flow.done("cancel finalized with refund", { publicId, result: refunded.result });
       return NextResponse.json({
         result: refunded.result,
         order: refunded.payload ? toPublicOrder(refunded.payload) : undefined,
@@ -50,13 +111,14 @@ export async function POST(
       });
     }
 
+    flow.done("cancel complete", { publicId, result: result.result });
     return NextResponse.json({
       result: result.result,
       order: result.payload ? toPublicOrder(result.payload) : undefined,
       accessToken: result.payload?.order.access_token,
     });
   } catch (error) {
-    log.error("cancel-order", "failed", { error: errMessage(error) });
+    flow.fail("failed", { error: errMessage(error) });
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Cancel failed" },
       { status: 400 },

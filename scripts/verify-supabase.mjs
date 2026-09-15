@@ -37,7 +37,16 @@ const db = createClient(url, service, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const expectedTables = ["variants", "orders", "order_items", "payment_events", "checkout_otps", "checkout_verify_sessions"];
+const expectedTables = [
+  "variants",
+  "orders",
+  "order_items",
+  "payment_events",
+  "checkout_otps",
+  "checkout_verify_sessions",
+  "users",
+  "customer_sessions",
+];
 const expectedRpcs = [
   "checkout_create",
   "attach_razorpay_order",
@@ -50,6 +59,7 @@ const expectedRpcs = [
   "admin_set_parcel",
   "admin_set_payment",
   "confirm_cod_order",
+  "upsert_customer",
 ];
 const expectedOrderCols = [
   "public_id",

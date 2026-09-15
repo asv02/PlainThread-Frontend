@@ -6,20 +6,26 @@ import {
 } from "@/lib/shop/orders";
 import { priceCart, validateCustomer } from "@/lib/shop/pricing";
 import {
+  razorpayConfigError,
   razorpayConfigured,
+  razorpayKeyMode,
+  razorpayModeSetting,
+  razorpayPublicKeyId,
   simulatedPaymentsAllowed,
-  siteUrl,
+  storefrontUrl,
   stockHoldMinutes,
 } from "@/lib/shop/config";
 import { createRazorpayOrder, RazorpayRequestError } from "@/lib/payments/razorpay";
 import { isConfirmedOrder, toPublicOrder } from "@/lib/shop/serialize";
 import type { CartLine, OrderPayload } from "@/lib/shop/types";
-import { errMessage, log } from "@/lib/log";
+import { errMessage, startFlow } from "@/lib/log";
 import { assertCheckoutVerified } from "@/lib/shop/otp";
+import { upsertCustomer } from "@/lib/shop/customers";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getProduct } from "@/data/products";
 
 export async function POST(request: Request) {
-  const started = Date.now();
+  const flow = startFlow("checkout", { path: "/api/checkout" });
   try {
     const body = (await request.json()) as {
       idempotencyKey?: string;
@@ -30,22 +36,52 @@ export async function POST(request: Request) {
 
     const idempotencyKey = body.idempotencyKey?.trim() ?? "";
     if (idempotencyKey.length < 8) {
-      log.info("checkout", "rejected missing idempotency key");
+      flow.fail("rejected: missing idempotency key");
       return NextResponse.json({ error: "Missing checkout key" }, { status: 400 });
     }
+    flow.step("idempotency key accepted", {
+      idempotencyKeyPrefix: idempotencyKey.slice(0, 8),
+      cartLines: body.items?.length ?? 0,
+    });
 
     const customer = validateCustomer(body.customer ?? {});
+    flow.step("customer validated", {
+      state: customer.state,
+      pincode: customer.pincode,
+    });
+
     await assertCheckoutVerified({
       token: body.verifyToken,
       email: customer.email,
       phone: customer.phone,
     });
+    flow.step("email/otp session verified");
+
+    const paymentsError = razorpayConfigError();
+    if (paymentsError && !simulatedPaymentsAllowed()) {
+      flow.fail("payments misconfigured", {
+        error: paymentsError,
+        razorpayMode: razorpayModeSetting(),
+        keyMode: razorpayKeyMode(),
+      });
+      return NextResponse.json({ error: paymentsError }, { status: 503 });
+    }
+    flow.step("payment provider checked", {
+      razorpayMode: razorpayModeSetting(),
+      keyMode: razorpayKeyMode(),
+      configured: razorpayConfigured(),
+      simulate: simulatedPaymentsAllowed(),
+    });
+
     const priced = priceCart(body.items ?? [], { destinationState: customer.state });
-    log.debug("checkout", "priced cart", {
-      lines: priced.items.length,
-      totalPaise: priced.totalPaise,
+    flow.step("cart priced", {
+      lines: priced.items.map((item) => `${item.product_slug}:${item.size}x${item.qty}`),
+      subtotalPaise: priced.subtotalPaise,
+      taxPaise: priced.tax.taxPaise,
       taxKind: priced.tax.taxKind,
-      idempotencyKeyPrefix: idempotencyKey.slice(0, 8),
+      shippingPaise: priced.shippingPaise,
+      totalPaise: priced.totalPaise,
+      holdMinutes: stockHoldMinutes(),
     });
 
     const payload = await checkoutCreate({
@@ -63,15 +99,35 @@ export async function POST(request: Request) {
       sgstPaise: priced.tax.sgstPaise,
       igstPaise: priced.tax.igstPaise,
     });
-
-    log.info("checkout", "order ready", {
+    flow.step("stock held and order row created", {
       publicId: payload.order.public_id,
       status: payload.order.status,
+      paymentStatus: payload.order.payment_status,
       totalPaise: payload.order.total_paise,
-      ms: Date.now() - started,
+      reused: payload.order.razorpay_order_id ? true : false,
     });
 
+    try {
+      const userId = await upsertCustomer({
+        email: payload.order.email,
+        phone: payload.order.phone,
+        name: payload.order.customer_name,
+      });
+      if (!payload.order.user_id) {
+        await supabaseAdmin().from("orders").update({ user_id: userId }).eq("id", payload.order.id);
+        payload.order.user_id = userId;
+      }
+      flow.step("order linked to user", { publicId: payload.order.public_id, userId });
+    } catch (error) {
+      flow.debug("user link skipped", { error: errMessage(error) });
+    }
+
     if (isConfirmedOrder(payload.order)) {
+      flow.done("already confirmed; skip new payment", {
+        publicId: payload.order.public_id,
+        paymentMethod: payload.order.payment_method,
+        paymentStatus: payload.order.payment_status,
+      });
       return NextResponse.json({
         alreadyPaid: payload.order.payment_status === "paid" || payload.order.payment_method === "cod",
         order: toPublicOrder(payload),
@@ -81,15 +137,16 @@ export async function POST(request: Request) {
 
     if (!razorpayConfigured()) {
       if (!simulatedPaymentsAllowed()) {
-        log.error("checkout", "payments not configured; restocking");
+        flow.step("payments missing; restocking");
         await cancelCustomerOrder(payload.order.id, "payments_not_configured");
+        flow.fail("payments not configured after hold");
         return NextResponse.json(
-          { error: "Payments are not configured yet. Add Razorpay keys to go live." },
+          { error: paymentsError || "Payments are not configured yet. Add Razorpay keys to go live." },
           { status: 503 },
         );
       }
 
-      log.info("checkout", "simulate provider", { publicId: payload.order.public_id });
+      flow.done("simulate provider ready", { publicId: payload.order.public_id });
       return NextResponse.json({
         provider: "simulate",
         order: toPublicOrder(payload),
@@ -103,6 +160,12 @@ export async function POST(request: Request) {
     let razorpayOrderId = payload.order.razorpay_order_id;
     if (!razorpayOrderId) {
       try {
+        const lineItems = magicLineItems(payload);
+        flow.step("creating Razorpay Magic Checkout order", {
+          publicId: payload.order.public_id,
+          amountPaise: payload.order.total_paise,
+          lineItems: lineItems.length,
+        });
         const razorpayOrder = await createRazorpayOrder({
           amountPaise: payload.order.total_paise,
           receipt: payload.order.public_id,
@@ -110,16 +173,21 @@ export async function POST(request: Request) {
             public_id: payload.order.public_id,
             email: payload.order.email,
           },
-          lineItems: magicLineItems(payload),
+          lineItems,
         });
         razorpayOrderId = razorpayOrder.order_id;
+        flow.step("Razorpay order created", {
+          publicId: payload.order.public_id,
+          razorpayOrderId,
+          amount: razorpayOrder.amount,
+        });
         await attachRazorpayOrder(payload.order.id, razorpayOrderId);
-        log.info("checkout", "razorpay order attached", {
+        flow.step("Razorpay order id saved on local order", {
           publicId: payload.order.public_id,
           razorpayOrderId,
         });
       } catch (error) {
-        log.error("checkout", "razorpay create failed; restocking", {
+        flow.step("Razorpay create failed; restocking", {
           publicId: payload.order.public_id,
           error: errMessage(error),
         });
@@ -127,17 +195,22 @@ export async function POST(request: Request) {
         throw error;
       }
     } else {
-      log.debug("checkout", "reusing razorpay order", {
+      flow.step("reusing existing Razorpay order", {
         publicId: payload.order.public_id,
         razorpayOrderId,
       });
     }
 
+    flow.done("checkout ready for Magic Checkout", {
+      publicId: payload.order.public_id,
+      razorpayOrderId,
+      amountPaise: payload.order.total_paise,
+    });
     return NextResponse.json({
       provider: "razorpay",
       order: toPublicOrder(payload),
       accessToken: payload.order.access_token,
-      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+      keyId: razorpayPublicKeyId(),
       razorpayOrderId,
       order_id: razorpayOrderId,
       amount: payload.order.total_paise,
@@ -146,18 +219,18 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof RazorpayRequestError) {
-      log.error("checkout", "razorpay error", { error: error.message, status: error.status });
+      flow.fail("razorpay error", { error: error.message, status: error.status });
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     const message = error instanceof Error ? error.message : "Checkout failed";
     const status = message.includes("sold out") ? 409 : 400;
-    log.error("checkout", "failed", { error: message, status, ms: Date.now() - started });
+    flow.fail("failed", { error: message, status });
     return NextResponse.json({ error: message }, { status });
   }
 }
 
 function magicLineItems(payload: OrderPayload) {
-  const origin = siteUrl();
+  const origin = storefrontUrl();
   const lines = payload.items.map((item) => {
     const product = getProduct(item.product_slug);
     const image = product?.images[0]?.src;

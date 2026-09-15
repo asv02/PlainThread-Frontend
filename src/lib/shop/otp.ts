@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { otpSecret, smsConfigured } from "@/lib/shop/config";
 import { timingSafeEqual } from "@/lib/shop/serialize";
 import { log } from "@/lib/log";
+import { upsertCustomer } from "@/lib/shop/customers";
 
 export type OtpChannel = "email" | "phone";
 
@@ -40,6 +41,7 @@ export async function createOtp(channel: OtpChannel, destination: string) {
     .gte("created_at", since);
   if (countError) throw new Error(countError.message);
   if ((count ?? 0) >= 3) {
+    log.info("otp", "rate limited", { channel });
     throw new Error("Too many codes sent. Wait a few minutes and try again.");
   }
 
@@ -68,9 +70,13 @@ export async function consumeOtp(channel: OtpChannel, destination: string, code:
   const row = rows?.[0];
   if (!row) throw new Error("Request a new code first");
   if (new Date(row.expires_at).getTime() < Date.now()) {
+    log.info("otp", "expired", { channel });
     throw new Error("That code has expired. Request a new one.");
   }
-  if (row.attempts >= 5) throw new Error("Too many attempts. Request a new code.");
+  if (row.attempts >= 5) {
+    log.info("otp", "too many attempts", { channel });
+    throw new Error("Too many attempts. Request a new code.");
+  }
 
   const ok = hashesEqual(row.code_hash, hashCode(code.trim()));
   await db
@@ -80,6 +86,15 @@ export async function consumeOtp(channel: OtpChannel, destination: string, code:
   if (!ok) throw new Error("Incorrect code");
 
   await db.from("checkout_otps").delete().eq("id", row.id);
+  if (channel === "email") {
+    try {
+      await upsertCustomer({ email: destination });
+    } catch (error) {
+      log.error("otp", "user upsert after email verify failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 }
 
 export async function upsertVerifySession(input: {
@@ -138,6 +153,7 @@ export async function assertCheckoutVerified(input: {
 }) {
   const session = await getVerifySession(input.token ?? "");
   if (!session?.email_verified || !session.email || !timingSafeEqual(session.email, input.email)) {
+    log.info("otp", "checkout blocked; email not verified");
     throw new Error("Verify your email before paying.");
   }
   if (smsConfigured()) {
@@ -146,6 +162,7 @@ export async function assertCheckoutVerified(input: {
       !session.phone ||
       !timingSafeEqual(session.phone, input.phone)
     ) {
+      log.info("otp", "checkout blocked; phone not verified");
       throw new Error("Verify your mobile number before paying.");
     }
   }

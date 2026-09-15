@@ -1,4 +1,3 @@
-import { MarketplaceCards } from "@/components/product/MarketplaceCards";
 import { AddToCart } from "@/components/shop/AddToCart";
 import { ProductCard } from "@/components/product/ProductCard";
 import { ProductGallery } from "@/components/product/ProductGallery";
@@ -90,6 +89,10 @@ export default async function ProductPage({ params }: Props) {
               {product.gsm} GSM · {product.fabric} · {product.fit}
             </p>
 
+            <div className="mt-8">
+              <AddToCart productSlug={product.slug} productName={product.name} />
+            </div>
+
             <p className="mt-8 text-lg leading-8 text-secondary">
               Made for everyday comfort. No loud branding. No unnecessary graphics. Only
               timeless essentials.
@@ -111,14 +114,6 @@ export default async function ProductPage({ params }: Props) {
                 </li>
               ))}
             </ul>
-
-            <div className="mt-10">
-              <AddToCart productSlug={product.slug} productName={product.name} />
-            </div>
-
-            <div className="mt-10">
-              <MarketplaceCards marketplaces={product.marketplaces} />
-            </div>
           </FadeIn>
         </div>
 

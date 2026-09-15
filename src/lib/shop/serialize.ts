@@ -35,6 +35,7 @@ export function toPublicOrder(payload: OrderPayload): PublicOrder {
     totalPaise: order.total_paise,
     currency: order.currency,
     holdExpiresAt: isUnconfirmedHold(order) ? order.hold_expires_at : null,
+    createdAt: order.created_at,
     failureReason: order.failure_reason,
     items: items.map((item) => ({
       name: item.name,

@@ -4,7 +4,7 @@ export const siteConfig = {
   domain: "https://plainthread.in",
   tagline: "Premium Oversized Essentials",
   description:
-    "Plain Thread creates premium oversized t-shirts crafted with 220 GSM combed cotton. Minimal design, breathable comfort, and timeless essentials. Shop our collection on Amazon and Flipkart.",
+    "Plain Thread creates premium oversized t-shirts crafted with 220 GSM combed cotton. Minimal design, breathable comfort, and timeless essentials. Shop black, white, and pink on plainthread.in.",
   email: "hello@plainthread.in",
   instagram: "https://www.instagram.com/plainthread.in/",
   locale: "en_IN",

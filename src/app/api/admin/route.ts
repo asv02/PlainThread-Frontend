@@ -40,6 +40,7 @@ function toAdminOrder(order: DbOrder, items: DbOrderItem[]): AdminOrder {
     paid_at: order.paid_at,
     customer_email_sent_at: order.customer_email_sent_at ?? null,
     ops_email_sent_at: order.ops_email_sent_at ?? null,
+    user_id: order.user_id ?? null,
     created_at: order.created_at,
     updated_at: order.updated_at,
     items,
@@ -71,7 +72,7 @@ export async function GET() {
     list.push(item);
     itemsByOrder.set(item.order_id, list);
   }
-  log.debug("admin", "loaded", {
+  log.info("admin", "loaded", {
     variants: (variants ?? []).length,
     orders: orderRows.length,
   });
